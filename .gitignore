@@ -1,0 +1,23 @@
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Python / build
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Agentic 3-file + the working plan (never committed, per the agentic file protocol)
+CLAUDE.md
+MEMORY.md
+ANTIPATTERNS.md
+PLAN.md
+
+# COMMITS.md is intentionally NOT ignored here: it stays untracked, runs the commits, then is deleted.
