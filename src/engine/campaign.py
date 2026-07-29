@@ -11,6 +11,8 @@ from typing import Callable
 from referee import lineage_key, normalize_schema
 from referee.runner import confirm, precheck
 
+from .substrate import MockSubstrate
+
 
 @dataclass
 class CampaignResult:
@@ -21,8 +23,11 @@ class CampaignResult:
 
 
 def run_campaign(agent, backend, config, lease_store, box_factory,
-                 triage: Callable[[str], bool] = lambda narrative: True) -> CampaignResult:
+                 triage: Callable[[str], bool] = lambda narrative: True,
+                 substrate=None) -> CampaignResult:
     # --- Tier 1: discovery ---
+    if substrate is None:
+        substrate = MockSubstrate()
     candidates = agent.propose({})
     schema_raw = candidates[0]  # the bandit's pick (smoke: the first candidate)
     schema = normalize_schema(schema_raw)
@@ -32,9 +37,13 @@ def run_campaign(agent, backend, config, lease_store, box_factory,
     if not maturation.matured:
         return CampaignResult(None, "no maturation", schema, lk)
 
+    # The SUBSTRATE measures the gate inputs (G0, mechanism, novelty, backbone, consequence); the
+    # agent contributes only its own belief. The referee never gates on agent-authored numbers.
+    bundle = substrate.produce(schema, backend, believed_claim=maturation.bundle.believed_claim)
+
     # Box-INDEPENDENT gates before leasing, so a scarce box is never burned on a free check
     # (catalog drift raises here, before any claim; G0 / unwired claim-type return ineligible).
-    pre = precheck(schema, config, maturation.bundle)
+    pre = precheck(schema, config, bundle)
     if pre is not None:
         return CampaignResult(pre, pre.reason, schema, lk)
 
@@ -48,7 +57,7 @@ def run_campaign(agent, backend, config, lease_store, box_factory,
         return CampaignResult(None, "no box available (exhausted or same-claim barred)", schema, lk)
     box = box_factory(claim.box_id)
     lease_store.mark_label_read(claim.box_id, claim.generation)
-    verdict = confirm(backend, box, schema, config, maturation.bundle)
+    verdict = confirm(backend, box, schema, config, bundle)
     lease_store.stage(claim.box_id, claim.generation, verdict=verdict.status, score=b"")
     lease_store.commit(claim.box_id, claim.generation)
 

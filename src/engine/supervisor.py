@@ -20,11 +20,24 @@ HEALTH_HALT = "HEALTH_HALT"
 BACKSTOP = "BACKSTOP"
 
 
+# The scientific budget for a first campaign. Compute is not the limit here; this keeps the
+# selection family's expected-false count under one (15 x 0.05 = 0.75) and human triage manageable.
+DEFAULT_MAX_MATURATIONS = 15
+
+
 @dataclass(frozen=True)
 class Budget:
     max_gpu_hours: float
     max_boxes: float
     max_maturations: float
+
+    @classmethod
+    def default(cls, max_gpu_hours: float = 200.0, max_boxes: float = 120.0,
+               max_maturations: float = DEFAULT_MAX_MATURATIONS) -> "Budget":
+        """A sane starting budget. GPU-hours is a loose runaway guard (~3x the expected cost of the
+        maturations), boxes covers the maturations plus replication/backbone reserves, and
+        max_maturations is the real scientific ceiling."""
+        return cls(max_gpu_hours=max_gpu_hours, max_boxes=max_boxes, max_maturations=max_maturations)
 
 
 @dataclass(frozen=True)

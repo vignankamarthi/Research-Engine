@@ -75,6 +75,12 @@ def test_halt_flag_is_durable_and_human_clearable(tmp_path):
     assert not HaltFlag(p).is_set()
 
 
+def test_default_budget_uses_fifteen_maturations():
+    from engine.supervisor import DEFAULT_MAX_MATURATIONS
+    assert DEFAULT_MAX_MATURATIONS == 15
+    assert Budget.default().max_maturations == 15
+
+
 def test_base_case_predicate():
     assert base_case_reached(SupervisorState(0, 3, 0), Budget(1e9, 3, 1e9))
     assert not base_case_reached(SupervisorState(0, 2, 0), Budget(1e9, 3, 1e9))

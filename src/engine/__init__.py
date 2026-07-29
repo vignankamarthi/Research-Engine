@@ -33,6 +33,7 @@ from .fingerprint import (
     resume_verify,
 )
 from .health import DEGRADE, HALT, QUARANTINE, RETRY, HaltError, HealthGate, Probe
+from .substrate import ExperimentSubstrate, MockSubstrate, Substrate
 from .steering import (
     BREADTH,
     DEPTH,
@@ -59,6 +60,7 @@ from .pool import (
 from .supervisor import (
     BACKSTOP,
     BASE_CASE,
+    DEFAULT_MAX_MATURATIONS,
     HALTED,
     HEALTH_HALT,
     Budget,
@@ -75,6 +77,7 @@ __all__ = [
     "ClaudeReviewerAdversary", "ClaudeSignificanceAdversary", "ClaudeSynthesizer",
     "ReviewerVerdict", "SignificanceVerdict", "Synthesis", "is_mature", "decide_arc",
     "run_campaign", "CampaignResult",
+    "Substrate", "MockSubstrate", "ExperimentSubstrate",
     "close_campaign", "PoolReport",
     "depth_completion", "replication_conjunction", "group_and_report",
     "finalize_campaign", "CampaignClose", "FamilyReport", "DELIVERABLE", "NO_ARC",
@@ -86,6 +89,6 @@ __all__ = [
     "Fingerprint", "MockEnvProbe", "record_fingerprint", "resume_verify",
     "MATCH", "PAGE", "SCORED_NO_RESCORE",
     "Budget", "HaltFlag", "SupervisorState", "base_case_reached", "run_supervisor",
-    "BASE_CASE", "HALTED", "HEALTH_HALT", "BACKSTOP",
+    "BASE_CASE", "HALTED", "HEALTH_HALT", "BACKSTOP", "DEFAULT_MAX_MATURATIONS",
     "DeadMansSwitch", "EscalationChannel", "MockTransport", "TransportError", "clock_trustworthy",
 ]
