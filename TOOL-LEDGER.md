@@ -8,20 +8,28 @@
 > Milestones 0-4), DISCOVERY (built with the discovery tier, PLAN Milestones 5-6). CORE/DISCOVERY are
 > build PHASES, not PLAN's milestone numbers.
 
+> IN-CODE TODAY vs PRODUCTION-DEPLOYMENT. The Mac build's actual dependencies are `numpy`, `scipy`,
+> `statsmodels`, `optuna`, and `cryptography`, plus the durable stores backed by SQLite (`common.sqlite`)
+> and local checksummed files, and the Claude Code CLI for the discovery subagents. MLflow, Postgres,
+> Langfuse, DVC, Apptainer, and SLURM are the production-deployment targets for the same roles, not
+> current in-code deps. Rows below name the production tool; the Mac stand-in is noted where it differs.
+
 ## The four failure states
 
 "No silent fallback" forbids a substitute tool, a skipped step, or continuing past a broken disposer.
-A bounded retry against the SAME tool is not a fallback.
+A bounded retry against the SAME tool is not a fallback. The response is DETERMINISTIC. Every fault
+first attempts a bounded self-heal, and if that does not clear the health probe it HALTs and pages
+Vignan. The system either fixes itself or stops, it never diverges.
 
 - **HALT** -- disposers + integrity. Stop launching, checkpoint, snapshot, escalate. Data/liveness resume on a green re-probe + fingerprint match. Integrity/tamper HALTs need human acknowledgment.
-- **QUARANTINE** -- a data/provenance break. Everything since the last green probe of this entry is SUSPECT and recomputed. Unaffected arms continue.
+- **QUARANTINE** -- a data/provenance break. Everything since the last green probe of this entry is SUSPECT and recomputed, capped at N recompute cycles. If the same probe re-trips after N, or the break is one a recompute cannot fix (egress cut, data purged), it PROMOTES to HALT + escalate rather than spinning. Unaffected arms continue.
 - **RETRY** -- a transient blip on the same tool. Bounded backoff, escalate after N failures.
 - **DEGRADE-WITH-BUFFER** -- observability only. Buffer to disk, warn, continue.
 
 ## Kill / resume policy
 
 - Preflight probes every entry. A heartbeat re-probes on the signed-config interval (faster for the disposer/integrity tier).
-- A HALT snapshot is the full environment fingerprint + resumeFromRunId + durable Optuna/MLflow state, written to a checksummed append-only file on `/work`, INDEPENDENT of Postgres.
+- A HALT snapshot is the full environment fingerprint + resumeFromRunId + durable Optuna/MLflow state, written to a checksummed append-only file on `/work`. The two-phase box records (marker, staged score, spend, bank entry) live in ONE ACID store (SQLite today via `common.sqlite`, Postgres in production), and the `/work` snapshot is advisory reconstruction only, never a two-phase record, so the resume decision is never split across stores.
 - On resume the fingerprint is re-verified byte-for-byte. A mismatch quarantines the affected pre-registrations.
 - The self-chaining supervisor carries the campaign across cert-expiry, maintenance-window, and compaction gaps.
 
@@ -35,13 +43,13 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 | Gate-config signature | goalpost-lock | signature verifies against the offline public key baked into the container | not signed by Vignan's Mac key | CORE |
 | Control-code write-lock | no self-modification | running code matches the committed baseline SHA | any unauthorized diff | CORE |
 | Control catalog hash | no free-authored controls | catalog hash unchanged and signed | hash changed without a signed edit | CORE |
-| Environment-fingerprint equality | no pooling incomparable runs | two runs share the NODE-INVARIANT canonical fingerprint (container digest, lib versions, GPU model + compute capability, determinism flags) before aggregation, so parallel multi-node seeds can pool | fingerprint mismatch | CORE |
+| Environment-fingerprint equality | no pooling incomparable runs | two runs share the node-invariant canonical fingerprint (container digest, lib versions, GPU model + compute capability, determinism flags), confirmatory scoring is SINGLE-GPU by default so a once-scored box needs no NCCL/GPU-count pin and a cluster driver bump does not strand a resume, any unavoidable multi-GPU confirmation pins those and a resume mismatch on an un-scored box PAGES rather than quarantining | fingerprint mismatch | CORE |
 
 ## The referee's data channels (HALT / QUARANTINE)
 
 | Entry | Purpose | Probe | Break signature | State | Status |
 |---|---|---|---|---|---|
-| Holdout scoring (touch-once) | the confirmatory held-out score | reachable, a direct label read from the experiment identity is DENIED, each matured hypothesis scores the holdout at most once (logged, append-only) | label file readable, or a hypothesis re-scores a spent holdout | HALT | CORE |
+| Holdout boxes (fresh disjoint, lease) | the confirmatory held-out score | reachable, pre-split into disjoint powered boxes, label read DENIED, the allocator ATOMICALLY claims the BOX (serialization key) + a per-lineage reservation, staged in ONE ACID store (reserved pre-launch, label-read committed AND read-back-verified BEFORE the first label byte else HALT, staged score, atomic spend + bank entry, nothing bandit/MLflow-visible before the spend), the label-read commit a CAS against the box's monotonic lease GENERATION (a reclaim bumps it, so a partitioned orphan the controller falsely marked terminal fails the CAS and HALTs before reading), on resume staged->re-commit, label-read->burn + a durable burned-re-score-pending lineage record, reserved-only->reclaim ONLY after sacct/squeue shows the reserving job TERMINAL, none->reclaim | a box readable outside its score, TWO maturations of ANY lineage on one live box, a re-scored box, a reclaim of a box whose job is not provably dead, or a leased box in no defined state | HALT | CORE |
 | Dataset signed manifest | executed-not-fabricated | manifest signature verifies and its hash matches the one pinned in the signed gate config | checksum or signature mismatch (a fabrication or swap signal) | QUARANTINE | CORE |
 | Pre-registration store + clock anchor | no backdated pre-registration | the pre-reg hash exists in the remote append-only store with a server-side timestamp before any run | local timestamp with no remote anchor | HALT | CORE |
 
@@ -66,9 +74,10 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 
 | Entry | Purpose | Probe | Break signature | State | Status |
 |---|---|---|---|---|---|
-| Postgres (MLflow) | the ledger's backing store | write-then-read-back canary, connection headroom, disk headroom, backup freshness | intermittent write failure (fewer logged seeds, reads as a legitimate result) | HALT | CORE |
+| SQLite ledger (Postgres/MLflow in production) | the ledger's backing store | write-then-read-back canary, connection headroom, disk headroom, backup freshness | intermittent write failure (fewer logged seeds, reads as a legitimate result) | HALT | CORE |
 | MLflow | provenance, dedup | an in-job canary run with a unique token, asserting the tracking URI, experiment id, and artifact writability | `MLFLOW_TRACKING_URI` unset so jobs write to local `./mlruns` | QUARANTINE | CORE |
 | Optuna + RDBStorage | bandit search state | study loads from the DB | DB down | HALT | CORE |
+| Negative bank | precise failure memory, gates a fresh box + steers discovery | durable append-only store loads, each entry carries the exact claim + failure mode + conditions + box spent, the LINEAGE KEY is a deterministic function of the frozen schema computed IN the trusted process (never the generative tier), the bank entry and box-spend written in ONE transaction | store unreachable, an entry missing its structured fields, lineage judged outside the trusted process, or a bank/allocator mismatch | HALT | CORE |
 | Langfuse | tracing, visibility | ingestion endpoint healthy, on a SEPARATE instance from the ledger | endpoint down | DEGRADE-WITH-BUFFER | LIVE |
 | Backbone cache | assay + experiments | backbones present with hashes bound to the HF revision SHA recorded at first download | missing or SHA mismatch | HALT | CORE |
 | uv.lock + DVC | reproducibility roots | lock hash and DVC artifact hashes match the fingerprint | drift | HALT | CORE |
@@ -77,9 +86,9 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 
 | Entry | Purpose | Probe | Break signature | State | Status |
 |---|---|---|---|---|---|
-| Semantic Scholar MCP | occupancy, novelty re-audit | a freshness check (a known-recent item returns, corpus release id recorded) | stale cache returns old results, or rate-limited | RETRY | LIVE |
+| Semantic Scholar MCP | occupancy, novelty re-audit (PRE-allocation) | a freshness check (a known-recent item returns, corpus release id recorded) | stale cache returns old results, or rate-limited | RETRY (novelty runs before the box is leased, so a stale corpus defers the check, never fail-closed-rejects a scored finding) | LIVE |
 | arXiv MCP | paper mining | freshness check returns hits | brief outage | RETRY | LIVE |
-| Scite MCP | believed-claim check | auth valid, a test query returns | OAuth expired or monthly cap hit | defer the NEGATIVE gate for that arm, positive arms continue | LIVE |
+| Scite MCP | believed-claim check | auth valid, a test query returns | OAuth expired or monthly cap hit | park THAT ONE finding in a provisional "null pending certification" bucket for human triage, NEVER blocks the pool (every other finding routes and assembles normally), a persistent cap ESCALATES | LIVE |
 | Parallel Research MCP | deep research | `task_status` ok | down | DEGRADE-WITH-BUFFER | LIVE |
 | HF Papers + Hub cards | paper-to-artifact bridge, trending recency, backbone cutoff dates | a known-recent daily paper returns and a model-card cutoff is readable | stale or down | RETRY | LIVE |
 
@@ -87,18 +96,22 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 
 | Entry | Purpose | Probe | Break signature | State | Status |
 |---|---|---|---|---|---|
-| Bun/JS engine | orchestration | `bun test` green in `engine/` | tests red or build drift | HALT | LIVE |
-| Generated workflow | run entry | matches a fresh `bun build-workflow.js` | hand-edited or stale | HALT | LIVE |
+| Python engine (`src/engine`) | orchestration | `uv run pytest` green | tests red | HALT | LIVE |
+| Claude Code subagents (`claude -p`) | discovery agents | a real proposal returns and parses | CLI failure or unparseable output | RETRY then HALT | LIVE |
 | Stats libs (scipy, statsmodels, pingouin) | acceptance math (standard BH, no bespoke e-BH) | import plus known-answer tests, differential-tested against a named third-party reference | version drift or a KAT mismatch | HALT | CORE |
-| Self-chaining supervisor | carries the campaign | EXACTLY ONE queued successor (two-sided), the campaign GPU-hour cap enforced at SLURM (`GrpTRESMins`), and a durable human-clearable HALT flag honored on wake | zero or more-than-one successor, the cap not scheduler-enforced, or a HALT flag raced | HALT | CORE |
-| External dead-man's-switch | catches a silently-dead supervisor | a supervisor heartbeat seen by a Mac cron or SLURM scavenger, independent of the chain | no heartbeat in X hours (the two-sided probe cannot self-observe zero) | HALT + alert | CORE |
+| MIE effect-size distribution | the external interest anchor | a signed distribution of recent accepted-paper effect sizes per task with verified provenance + signature, a re-sign/refresh policy per cycle, a HIGH percentile (top-quartile) and a stated fallback for a task with no distribution | missing, unsigned, stale beyond policy, or a no-distribution task with no fallback | HALT | CORE |
+| Incumbent catalog | the foundational-comparison bar | a signed per-task catalog whose entry is the STRONGEST provenance-verified published held-out result at campaign start, verified provenance + signature, per-cycle re-sign/refresh, not a strawman | missing, unsigned, stale, or a strawman-flagged entry | HALT | CORE |
+| Self-chaining supervisor | carries the campaign + guarantees termination | EXACTLY ONE queued successor (two-sided), the campaign GPU-hour cap enforced at SLURM (`GrpTRESMins`), the base-case halt evaluated on every wake (fires when GPU-hours OR LIVE boxes OR max-maturations are spent, with the canonical `live_boxes >= per-maturation demand + per-family replication reserve + correlated re-score-and-burn contingency` held), and a durable human-clearable HALT flag honored on wake | zero or more-than-one successor, the cap not scheduler-enforced, the base case not evaluated on wake, the coverage invariant violated, or a HALT flag raced | HALT | CORE |
+| External dead-man's-switch | catches a silently-dead supervisor | a supervisor heartbeat seen by a genuinely ALWAYS-ON VM (never the laptop, never a preemptible scavenger, since a preemption would masquerade as death), independent of the chain, the miss-alert routed through TWO independent transports DISJOINT from the escalation path plus a positive alerting-OK heartbeat Vignan watches | no heartbeat in X hours (the two-sided probe cannot self-observe zero) | HALT + alert | CORE |
 | Anthropic API (the driving agent) | setup and read | availability, rate headroom, token-budget remaining | outage or budget exhausted | RETRY | LIVE |
 | Context compaction | agent state survives a compaction | campaign state is fully reconstructable from durable stores, nothing load-bearing lives only in agent context | in-context-only state lost at compaction | survivable (supervisor is the source of truth) | LIVE |
-| Escalation channel | a halt reaches Vignan | a test escalation is delivered and acknowledged | unmonitored channel, a halt becomes an indefinite stall | HALT if unverified | CORE |
+| Escalation channel | a halt reaches Vignan | a test escalation is delivered and acknowledged over TWO independent transports, with a periodic positive alerting-OK beat so absence of the beat is itself the signal | unmonitored channel, a single transport, or a halt becomes an indefinite stall | HALT if unverified | CORE |
 | Running-code git SHA | provenance | the SHA and a clean/dirty flag recorded on every run | dirty tree or an uncommitted run | HALT | CORE |
-| Campaign budget | bounded runtime | wall-clock and GPU-hours under the ceiling in the signed config | budget exhausted | end campaign as INCONCLUSIVE | CORE |
+| Campaign budget + box count | bounded runtime, the base case | wall-clock, GPU-hours, and LIVE boxes under the signed ceilings, CANDIDATE-INCLUSIVE admission on GPU-hours AND wallclock (spent + drain(running) + candidate walltime x GPUs <= hard cap where drain(running) = sum of running jobs' SLURM TIME-LIMIT reservations, candidate walltime <= 24h) so no confirmatory job dies mid-score, `live_boxes >= per-maturation demand + per-family replication reserve + correlated re-score-and-burn contingency + backbone-cohort reserve` AND a matching GPU-HOUR reserve for the held-back scores (the GPU-hour base case fires at hard_cap minus that reserve, admission checked against the reduced ceiling) config-validated to CLOSE before the campaign AND re-validated on any ceiling raise (reserves held back so the base case fires while they remain) | any ceiling hit | base-case halt, drain in-flight, selection-correct (threshold + replication gate) + route the pool per lineage/family, resumable only when the ceiling is raised in the signed config AND the SLURM QOS AND the closure validator re-passes | CORE |
 
 ## Notes
 
 - A checksum or integrity failure is a fabrication/tamper signal, and it flags every result since the last green probe of that entry, not only the most recent row.
-- Every M0/M1 entry gets its probe written test-first. Correctness-shaped probes (in-job canaries, known-answer tests, freshness checks) are the pattern. Liveness alone is not enough for anything a disposer depends on.
+- Every CORE entry gets its probe written test-first. Correctness-shaped probes (in-job canaries, known-answer tests, freshness checks) are the pattern. Liveness alone is not enough for anything a disposer depends on.
+- The mechanical-invariant guards are the gate-library's own invariant checks (built test-first with the gate library, PLAN Milestone 2), verified in the trusted process at use, not a separate subsystem.
+- The one schema-normal-form (deriving control set + semantic lineage key + magnitude gate) is the trust-concentration point, so the Milestone-4 adversarial suite must attack IT directly (phrasing-to-weaker-gauntlet, equivalent-claim-to-different-lineage, dataset-alias collisions), not only the gates it derives.
