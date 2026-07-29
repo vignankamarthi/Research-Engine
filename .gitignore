@@ -4,6 +4,9 @@
 .idea/
 .vscode/
 
+# Personal Claude Code overrides for this project (cluster-command allow-list)
+.claude/settings.local.json
+
 # Python / build
 __pycache__/
 *.py[cod]
@@ -13,6 +16,7 @@ venv/
 *.egg-info/
 build/
 dist/
+artifacts/
 
 # Agentic 3-file + the working plan (never committed, per the agentic file protocol)
 CLAUDE.md

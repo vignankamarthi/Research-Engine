@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "research-engine"
+version = "0.0.0"
+description = "Confirmatory core for the self-sustaining research loop (SMILE)"
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=42",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+    "optuna>=3.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The local Mac suite never runs cluster-marked tests (they need AICR + a real
+# checkpoint). Run them explicitly on the cluster with `pytest -m cluster`.
+addopts = "-m 'not cluster'"
+markers = [
+    "cluster: requires AICR + a real checkpoint (a human-intervention point; the loop's local tests never run these)",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # pycodestyle, pyflakes, import-sorting
+# hf.py imports torch lazily inside load(); the module-level fence is intentional.
+per-file-ignores = { "src/backend/hf.py" = ["F401"] }
