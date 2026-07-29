@@ -65,6 +65,7 @@ class MockAgent:
         return [{
             "claim": "freq-domain temporal modeling improves recognition",
             "claim_type": "effect", "backbone": "iv2", "dataset": "ssv2",
+            "mechanism": "temporal_frequency",  # what the ablation removes; read from the claim
             "scale": "7b", "measure": "top-1 accuracy", "prior_claim": False,
         }]
 
