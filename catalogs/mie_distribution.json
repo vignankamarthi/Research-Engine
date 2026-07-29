@@ -1,0 +1,33 @@
+{
+  "_comment": "The externally-anchored interest floor. Per task, effect sizes from recent ACCEPTED papers; the MIE is a HIGH percentile (top-quartile) of that distribution, so the 'interesting' bar comes from the field. Values from a multi-query Semantic Scholar + Scite + arXiv pull with per-delta DOIs; unverified deltas excluded from the top-quartile. Both tasks are near-saturated, so the frontier vs raw top-quartile decision is flagged per task. Vignan verifies + signs before use.",
+  "ssv2_recognition_top1": {
+    "accepted_effect_sizes": [0.010, 0.0027, 0.024, 0.006, 0.004, 0.07, 0.008, 0.005],
+    "effect_size_sources": [
+      {"delta": 0.010, "paper": "Trajectory Attention (Patrick et al., NeurIPS 2021)", "doi": "10.48550/arXiv.2106.05392"},
+      {"delta": 0.0027, "paper": "PatchBlender (Prato et al., 2022, ViT-B)", "doi": "10.48550/arXiv.2211.14449"},
+      {"delta": 0.024, "paper": "Masked Video Distillation ViT-L over VideoMAE (CVPR 2023)", "doi": "10.1109/cvpr52729.2023.00611"},
+      {"delta": 0.006, "paper": "Masked Video Distillation ViT-H over own ViT-L (CVPR 2023)", "doi": "10.1109/cvpr52729.2023.00611"},
+      {"delta": 0.004, "paper": "InternVideo2 6B vs 1B fine-tuned (ECCV 2024)", "doi": "10.1007/978-3-031-73013-9_23"},
+      {"delta": 0.07, "paper": "VideoMamba 32f over VideoSwin-T, low operating point ~64% (2024)", "doi": "10.48550/arXiv.2407.08476"},
+      {"delta": 0.008, "paper": "DEAR over VideoMamba-S, operating point ~71% (2024)", "doi": "10.48550/arXiv.2408.15679"},
+      {"delta": 0.005, "paper": "DejaVid over VideoMAE-V2-g (2025)", "doi": "10.48550/arXiv.2506.12585"}
+    ],
+    "mie_percentile": 75,
+    "mie_value": 0.01,
+    "status": "CITED + leniency choice APPLIED (MIE = 0.01, the FRONTIER top-quartile, lower and more lenient than the raw 0.014). SSv2 saturates hard at the >77% frontier where accepted gains are almost all below +0.01; the raw 0.014 was inflated by two low-operating-point deltas (VideoMamba +7 pt, DEAR +0.8 pt) against weaker baselines. Vignan verifies + signs. NeurIPS/CVPR/ECCV entries venue-confirmed; PatchBlender/VideoMamba/DEAR/DejaVid acceptance unverified (arXiv-indexed)."
+  },
+  "kinetics400_recognition_top1": {
+    "accepted_effect_sizes": [0.001, 0.004, 0.010, 0.010, 0.011, 0.012],
+    "effect_size_sources": [
+      {"delta": 0.012, "paper": "InternVideo vs prior SOTA MTV-H (89.9 -> 91.1, 2022)", "doi": "10.48550/arXiv.2212.03191"},
+      {"delta": 0.011, "paper": "UniFormerV2-L vs EVL-L at similar FLOPs, within-paper +1.1 pt (ICCV 2023)", "doi": "10.48550/arXiv.2211.09552"},
+      {"delta": 0.010, "paper": "InternVideo2-6B vs prior SOTA (91.1 -> 92.1, 2024)", "doi": "10.48550/arXiv.2403.15377"},
+      {"delta": 0.010, "paper": "TubeViT-H vs prior SOTA MTV-H (89.9 -> 90.9, CVPR 2023)", "doi": "10.48550/arXiv.2212.03229"},
+      {"delta": 0.004, "paper": "InternVideo2 within-paper 1B -> 6B scaling, avg fine-tuned gain (2024)", "doi": "10.48550/arXiv.2403.15377"},
+      {"delta": 0.001, "paper": "VideoMAE-V2-g vs prior SOTA MTV-H (89.9 -> 90.0, CVPR 2023)", "doi": "10.48550/arXiv.2303.16727"}
+    ],
+    "mie_percentile": 75,
+    "mie_value": 0.011,
+    "status": "CITED + leniency choice APPLIED (MIE = 0.011, the top-quartile of the 6 confirmed frontier deltas [0.001, 0.004, 0.010, 0.010, 0.011, 0.012]). The whole K400 set is already frontier SOTA-progression, so 0.011 is both the top-quartile and the lenient value, there is no lower defensible number. Vignan verifies + signs. K400 near-saturated, SOTA moved only ~89.9 (2022) to 92.1 (2024). A CoVeR +2.4 pt claim was EXCLUDED (arXiv ID/DOI unverifiable)."
+  }
+}

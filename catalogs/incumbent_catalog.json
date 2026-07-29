@@ -1,0 +1,25 @@
+{
+  "_comment": "The strongest provenance-verified published held-out result per task at campaign start (the bar a CAPABILITY claim must beat). Values from a multi-query Semantic Scholar + Scite + arXiv pull, each DOI cross-checked and each implausible/unaccepted claim explicitly excluded (see per-task status). Vignan verifies + signs before use.",
+  "ssv2_recognition_top1": {
+    "value": 0.773,
+    "source": "Masked Video Distillation, MVD ViT-H (R. Wang et al., 2023, CVPR), 77.3 top-1 on SSv2. DOI 10.1109/cvpr52729.2023.00611.",
+    "protocol": "Something-Something-v2 official val split, end-to-end fine-tuned top-1. The strongest ARCHITECTURE-driven result (no billion-scale extra pretraining), chosen as the incumbent for leniency so a claim beats an architecture-comparable bar rather than a 6B-param scale model.",
+    "stronger_scale_driven_result": {
+      "value": 0.775,
+      "source": "InternVideo2-6B (Y. Wang et al., 2024, ECCV), 77.5 top-1 (Table 16). DOI 10.1007/978-3-031-73013-9_23.",
+      "note": "The highest published value overall, but pretraining-scale-driven (the paper introduces no new architecture). NOT used as the incumbent, by Vignan's leniency choice."
+    },
+    "status": "CITED + leniency choice APPLIED (incumbent = 0.773, the fair architecture-only bar). Vignan verifies + signs. A claimed 0.834 (FTP-UniFormerV2, arXiv 2403.16128) was EXCLUDED as unreliable, internally inconsistent (body 79.8 vs abstract 83.4), implausibly high, and an unaccepted preprint. Protocol note, VideoMAE-V2-g reproduces at 76.7 not 77.0 depending on the video-decoding path (~0.3 pt swing)."
+  },
+  "kinetics400_recognition_top1": {
+    "value": 0.921,
+    "source": "InternVideo2-6B (Wang et al., 2024, ECCV), 92.1 top-1 on K400 (Table 2, 16 frames at 224). DOI 10.48550/arXiv.2403.15377.",
+    "protocol": "Kinetics-400 official val split, end-to-end fine-tuned top-1, multi-view test-time inference (~4 clips x 3 crops). 6B-param encoder, billion-scale multimodal pretraining then K-Mash fine-tune. Strongest published value.",
+    "runners_up": [
+      {"value": 0.911, "source": "InternVideo v1 (Wang et al., 2022), DOI 10.48550/arXiv.2212.03191"},
+      {"value": 0.909, "source": "TubeViT-H (Piergiovanni et al., CVPR 2023), DOI 10.48550/arXiv.2212.03229"},
+      {"value": 0.900, "source": "VideoMAE-V2-g (Wang et al., CVPR 2023), DOI 10.48550/arXiv.2303.16727; UniFormerV2-L reached 90.0 (ICCV 2023, DOI 10.48550/arXiv.2211.09552)"}
+    ],
+    "status": "CITED (Vignan verifies + signs). 0.921 is mixed but pretraining-scale-dominated (1B->6B scaling adds only +0.4 pt). A claimed 0.943 (FTP-UniFormerV2, arXiv 2403.16128 v1) was EXCLUDED as unreliable, an unaccepted preprint claiming +4-6 pt over its own identical UniFormerV2 backbone from a training add-on, unreproduced on a saturated benchmark. Test-time views/resolution differ across the runners-up, so cross-paper deltas are not perfectly comparable."
+  }
+}

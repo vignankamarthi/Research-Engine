@@ -1,0 +1,7 @@
+{
+  "_comment": "Pre-registered consequence per claim-type (anti-HARKing). Draft for Vignan to review and sign; its digest is verified at use, so it cannot be edited to fit a result. A CONFIRMED positive whose claim-type maps here must discharge this consequence on held-out data, or it caps at CONFIRMED-EFFECT.",
+  "effect": "A downstream task that depends on the claimed effect improves by at least the MIE on a held-out benchmark when the effect is present versus when it is ablated, on data drawn after the backbone cutoff.",
+  "qualitative_phenomenon": "The phenomenon persists on a held-out split drawn from a different source than the discovery data, so it is a property of the model and not an artifact of the discovery set.",
+  "capability": "The model solves held-out instances that the pre-registered incumbent fails, at a success rate separated from the incumbent by at least the MIE on the incumbent's own held-out protocol.",
+  "law_shape": "The fitted functional form predicts the metric at a held-out scale that was not used in the fit, within the stated tolerance."
+}
