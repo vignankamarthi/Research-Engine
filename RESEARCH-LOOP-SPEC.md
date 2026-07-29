@@ -187,6 +187,20 @@ On dev/public data only. Adaptive, cumulative, and STEERING.
   A top-importance high-patience maturation is guaranteed a confirmation box, and killing a top-ranked
   maturation at triage requires a logged written reason.
 
+## 3b. The substrate producer (three-party separation)
+
+Between discovery and the referee sits the SUBSTRATE. Three parties, none grading its own work.
+The AGENT (Tier 1) proposes and matures a hypothesis and contributes only its own opinion
+(`believed_claim`). The SUBSTRATE runs the gate experiments and MEASURES the evidence: the G0
+detectability probe, the mechanism ablation, the novelty audit, the backbone check, and the
+consequence experiment, assembling a provenance-verified bundle of gate inputs. The REFEREE
+(Tier 2) then judges those measurements. The referee never gates on a number the agent authored,
+this is what keeps a CONFIRMED verdict honest. A failed experiment produces the failing value, so
+the referee reads it as such rather than the substrate papering over it. In code the substrate is
+`engine.substrate` (the `Substrate` protocol, a `MockSubstrate` for the Mac pipeline, and an
+`ExperimentSubstrate` whose experiments are injected callables, mocked locally, real on the
+cluster where they score through `HFBackend` and query the research MCPs).
+
 ## 4. Tier 2 -- Confirmation (the referee)
 
 The frozen out-of-process verifier, run ONCE per matured hypothesis in a SINGLE atomic exposure of a
