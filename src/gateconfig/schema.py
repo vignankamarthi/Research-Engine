@@ -36,6 +36,11 @@ class GateConfig:
     gate_library_digest: str
     control_catalog_hash: str
     key_id: str
+    # Optional signed-catalog digests. Present once the catalogs are drafted + signed; the runner
+    # verifies each when present, so signing the config transitively pins the catalogs too.
+    consequence_catalog_digest: str | None = None
+    incumbent_catalog_digest: str | None = None
+    mie_distribution_digest: str | None = None
 
 
 def _number(data: dict, field: str) -> float:
@@ -93,6 +98,11 @@ def validate_config(data: dict) -> GateConfig:
     control_catalog_hash = _nonempty_str(data, "control_catalog_hash")
     key_id = _nonempty_str(data, "key_id")
 
+    def _optional_digest(field: str) -> str | None:
+        if field not in data or data[field] is None:
+            return None
+        return _nonempty_str(data, field)
+
     return GateConfig(
         version=version,
         alpha=alpha,
@@ -103,6 +113,9 @@ def validate_config(data: dict) -> GateConfig:
         gate_library_digest=gate_library_digest,
         control_catalog_hash=control_catalog_hash,
         key_id=key_id,
+        consequence_catalog_digest=_optional_digest("consequence_catalog_digest"),
+        incumbent_catalog_digest=_optional_digest("incumbent_catalog_digest"),
+        mie_distribution_digest=_optional_digest("mie_distribution_digest"),
     )
 
 

@@ -87,6 +87,15 @@ def test_multi_benchmark_is_a_known_type_but_deferred_ok_to_declare():
     assert "multi_benchmark_superiority" in cfg.claim_types
 
 
+def test_catalog_digests_are_optional_and_parse_when_present():
+    assert validate_config(valid_dict()).consequence_catalog_digest is None
+    c = validate_config(valid_dict(consequence_catalog_digest="sha256:c",
+                                   incumbent_catalog_digest="sha256:i",
+                                   mie_distribution_digest="sha256:m"))
+    assert (c.consequence_catalog_digest, c.incumbent_catalog_digest,
+            c.mie_distribution_digest) == ("sha256:c", "sha256:i", "sha256:m")
+
+
 def test_canonical_bytes_is_deterministic_and_key_order_independent():
     a = validate_config(valid_dict())
     reordered = dict(reversed(list(valid_dict().items())))
