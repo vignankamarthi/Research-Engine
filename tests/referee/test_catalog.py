@@ -59,6 +59,18 @@ def test_resolve_incumbent_refuses_unknown_task():
         resolve_incumbent("unknown_task", INCUMB, catalog_digest(INCUMB))
 
 
+def test_resolve_incumbent_reads_the_rich_catalog_record():
+    # the real incumbent_catalog.json is {task: {value, source, protocol, ...}}, not a bare float
+    rich = {"ssv2_recognition_top1": {"value": 0.773, "source": "MVD ViT-H", "protocol": "val top-1"}}
+    assert resolve_incumbent("ssv2_recognition_top1", rich, catalog_digest(rich)) == 0.773
+
+
+def test_resolve_incumbent_rejects_a_record_with_no_value():
+    bad = {"t": {"source": "x"}}
+    with pytest.raises(CatalogError):
+        resolve_incumbent("t", bad, catalog_digest(bad))
+
+
 def test_incumbent_separated_at_mie():
     assert incumbent_separated(claimed_value=0.80, incumbent_value=0.70, mie=0.05) is True
     assert incumbent_separated(claimed_value=0.72, incumbent_value=0.70, mie=0.05) is False

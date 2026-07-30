@@ -99,7 +99,11 @@ def precheck(schema, config, bundle) -> Verdict | None:
 
 
 def confirm(backend, box, schema, config, bundle, k_untrained: int = 4) -> Verdict:
-    mie = config.mie_floor
+    # The operative interest bar is the PER-TASK MIE the substrate resolved from the signed
+    # mie_distribution catalog. config.mie_floor is only the fallback for a task with no signed
+    # entry, so a multi-task campaign gates each task on its own field-anchored bar, not one flat
+    # number. A substrate that resolved nothing (bundle.mie is None) uses the signed floor.
+    mie = bundle.mie if bundle.mie is not None else config.mie_floor
     alpha = config.alpha
 
     # Gate 0: the control catalog must still match what the config was signed over. A

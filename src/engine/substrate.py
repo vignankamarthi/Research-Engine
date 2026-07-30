@@ -33,12 +33,13 @@ class ExperimentSubstrate:
     measurement, never from the agent. A failed experiment produces the failing value, so the
     referee reads it as such rather than the substrate papering over it."""
 
-    def __init__(self, g0_fn, mechanism_fn, novelty_fn, backbone_fn, consequence_fn):
+    def __init__(self, g0_fn, mechanism_fn, novelty_fn, backbone_fn, consequence_fn, mie_fn=None):
         self._g0_fn = g0_fn                  # (backend, schema) -> bool
         self._mechanism_fn = mechanism_fn    # (backend, schema) -> (full_lo, ablated_hi, specificity_ok)
         self._novelty_fn = novelty_fn        # (schema) -> (collision, k_nearest, advance)
         self._backbone_fn = backbone_fn      # (schema) -> (cutoff_date, membership_clean)
         self._consequence_fn = consequence_fn  # (schema) -> (consequence_confirmed, incumbent_separated)
+        self._mie_fn = mie_fn                # (schema) -> per-task MIE float, or None to use the floor
 
     def produce(self, schema, backend, believed_claim: bool = False) -> Bundle:
         g0 = self._g0_fn(backend, schema)
@@ -46,7 +47,9 @@ class ExperimentSubstrate:
         collision, k_nearest, advance = self._novelty_fn(schema)
         cutoff, clean = self._backbone_fn(schema)
         consequence_ok, incumbent_sep = self._consequence_fn(schema)
+        mie = self._mie_fn(schema) if self._mie_fn is not None else None
         return Bundle(
+            mie=mie,
             g0_passed=g0,
             backbone_cutoff=cutoff,
             membership_clean=clean,

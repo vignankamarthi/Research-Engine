@@ -37,9 +37,11 @@ def run_campaign(agent, backend, config, lease_store, box_factory,
     if not maturation.matured:
         return CampaignResult(None, "no maturation", schema, lk)
 
-    # The SUBSTRATE measures the gate inputs (G0, mechanism, novelty, backbone, consequence); the
-    # agent contributes only its own belief. The referee never gates on agent-authored numbers.
-    bundle = substrate.produce(schema, backend, believed_claim=maturation.bundle.believed_claim)
+    # The SUBSTRATE measures the gate inputs (G0, mechanism, novelty, backbone, consequence) from
+    # the RAW proposal (it carries the mechanism to ablate and the claimed value; the normalized
+    # Schema drops them). The agent contributes only its own belief; the referee never gates on
+    # agent-authored numbers.
+    bundle = substrate.produce(schema_raw, backend, believed_claim=maturation.bundle.believed_claim)
 
     # Box-INDEPENDENT gates before leasing, so a scarce box is never burned on a free check
     # (catalog drift raises here, before any claim; G0 / unwired claim-type return ineligible).

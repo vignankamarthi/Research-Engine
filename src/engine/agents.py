@@ -29,6 +29,9 @@ class Bundle:
     novelty_advance: bool = False
     ood_holds: bool = False
     believed_claim: bool = False
+    # The PER-TASK MIE the substrate resolved from the signed mie_distribution catalog. None means
+    # the substrate did not resolve one, so the runner falls back to the config's signed mie_floor.
+    mie: float | None = None
 
     @classmethod
     def passing(cls, **overrides) -> "Bundle":
