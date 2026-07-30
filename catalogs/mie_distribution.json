@@ -16,6 +16,12 @@
     "mie_value": 0.01,
     "status": "CITED + leniency choice APPLIED (MIE = 0.01, the FRONTIER top-quartile, lower and more lenient than the raw 0.014). SSv2 saturates hard at the >77% frontier where accepted gains are almost all below +0.01; the raw 0.014 was inflated by two low-operating-point deltas (VideoMamba +7 pt, DEAR +0.8 pt) against weaker baselines. Vignan verifies + signs. NeurIPS/CVPR/ECCV entries venue-confirmed; PatchBlender/VideoMamba/DEAR/DejaVid acceptance unverified (arXiv-indexed)."
   },
+  "tomato_temporal_mcq": {
+    "accepted_effect_sizes": [0.03, 0.05, 0.02, 0.04],
+    "mie_percentile": 75,
+    "mie_value": 0.03,
+    "status": "STARTER (Vignan verifies + signs). TOMATO is a new (2024) hard temporal-reasoning benchmark with a wide human-model gap, so accepted method gains are larger than saturated SSv2/K400. 0.03 (+3 pt) is a defensible top-quartile placeholder; refine with a real spread of accepted TOMATO improvements before a submission-bound run."
+  },
   "kinetics400_recognition_top1": {
     "accepted_effect_sizes": [0.001, 0.004, 0.010, 0.010, 0.011, 0.012],
     "effect_size_sources": [

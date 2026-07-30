@@ -11,6 +11,12 @@
     },
     "status": "CITED + leniency choice APPLIED (incumbent = 0.773, the fair architecture-only bar). Vignan verifies + signs. A claimed 0.834 (FTP-UniFormerV2, arXiv 2403.16128) was EXCLUDED as unreliable, internally inconsistent (body 79.8 vs abstract 83.4), implausibly high, and an unaccepted preprint. Protocol note, VideoMAE-V2-g reproduces at 76.7 not 77.0 depending on the video-decoding path (~0.3 pt swing)."
   },
+  "tomato_temporal_mcq": {
+    "value": 0.379,
+    "source": "TOMATO (Shangguan et al., 2024, arXiv 2410.23266), strongest model ~37.9% overall MCQ accuracy (human 95.2%, human-model gap 57.3 pt).",
+    "protocol": "TOMATO 1,484 human-annotated MCQ items over 1,417 self-recorded/synthetic clips, overall accuracy. Membership-clean (self-recorded/synthetic, not scraped web), so backbone-clean for a post-2024 VLM.",
+    "status": "CITED starter (Vignan verifies + signs). The strongest published model on TOMATO at benchmark release; a fair, non-strawman incumbent for a temporal-reasoning capability claim."
+  },
   "kinetics400_recognition_top1": {
     "value": 0.921,
     "source": "InternVideo2-6B (Wang et al., 2024, ECCV), 92.1 top-1 on K400 (Table 2, 16 frames at 224). DOI 10.48550/arXiv.2403.15377.",
