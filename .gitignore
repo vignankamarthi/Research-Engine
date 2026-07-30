@@ -24,4 +24,7 @@ MEMORY.md
 ANTIPATTERNS.md
 PLAN.md
 
+# Internal venue/submission strategy (never committed; the repo is public)
+VENUE-TIMELINE.md
+
 # COMMITS.md is intentionally NOT ignored here: it stays untracked, runs the commits, then is deleted.
