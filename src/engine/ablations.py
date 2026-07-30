@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from .ablation_primitives import spectral_mask
 from .real_experiments import real_mechanism
 
 
@@ -66,7 +67,7 @@ def task_from_claim(schema: dict) -> str:
     return task
 
 
-def build_mechanism_fn(*, score_task, specificity_check, alpha: float):
+def build_mechanism_fn(*, score_task, specificity_check, alpha: float, resolve_ablation_fn=None):
     """Build the mechanism experiment for the `ExperimentSubstrate` seam. The returned
     `mechanism_fn(backend, schema)` reads the mechanism and task the hypothesis NAMES, resolves the
     ablation from the registry, scores the task full vs mechanism-ablated through the backend, and
@@ -74,11 +75,22 @@ def build_mechanism_fn(*, score_task, specificity_check, alpha: float):
     task come from the schema.
 
     `score_task(backend, task, ablation) -> per-item scores` (ablation=None -> the full model; an
-    Ablation -> that mechanism removed). `specificity_check(backend, schema, task) -> bool`."""
+    ablation with an `.apply` transform -> that mechanism removed). `specificity_check(backend,
+    schema, task) -> bool`.
+
+    `resolve_ablation_fn(mechanism, task) -> ablation` obtains the ablation. It defaults to the
+    static registry (`resolve_ablation`), but the red/blue construction loop (spec 3c,
+    `ablation_construction`) is injected here to make the ablation idea-agnostic and adversarially
+    verified. A registry `Ablation` and a `ConstructedAblation` both expose `.apply`, so the
+    `score_task` contract is uniform either way."""
+
+    if resolve_ablation_fn is None:
+        def resolve_ablation_fn(mechanism, task):
+            return resolve_ablation(mechanism)
 
     def mechanism_fn(backend, schema):
         task = task_from_claim(schema)
-        ablation = resolve_ablation(schema.get("mechanism", ""))
+        ablation = resolve_ablation_fn(schema.get("mechanism", ""), task)
         spec = specificity_check(backend, schema, task)
         return real_mechanism(
             score_full=lambda: score_task(backend, task, None),
@@ -90,15 +102,15 @@ def build_mechanism_fn(*, score_task, specificity_check, alpha: float):
     return mechanism_fn
 
 
-def _remove_temporal_frequency_bands(model, box, untrained_init=None):
-    """Cluster-side op (placeholder): zero the high temporal-frequency bands so the model can no
-    longer use temporal-frequency structure (the FFN/TFD mechanism). The real tensor op ships on
-    the cluster; on the Mac this is never called, only dispatched."""
-    raise NotImplementedError("temporal-frequency ablation runs through the backend on the cluster")
+def remove_temporal_frequency(frames, keep_fraction: float = 0.5):
+    """Temporal-frequency ablation, now just the `spectral_mask` PRIMITIVE parameterized to the time
+    axis (axis 0). Kept as a named convenience for the SSv2 experiment, with no privileged status:
+    it is one parameterization of a general, domain-free op, not a special-cased ablation."""
+    return spectral_mask(frames, axis=0, keep_fraction=keep_fraction)
 
 
 TEMPORAL_FREQUENCY = register_ablation(Ablation(
     name="temporal_frequency",
-    description="remove high temporal-frequency bands (the FFN/TFD mechanism)",
-    apply=_remove_temporal_frequency_bands,
+    description="remove high temporal-frequency bands from the input clip (DFT along time)",
+    apply=remove_temporal_frequency,
 ))

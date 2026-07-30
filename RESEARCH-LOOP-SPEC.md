@@ -108,7 +108,7 @@ flowchart TD
     G0b --> CTRL[Controls incl FLOOR -- worst-of-K residual, OR prior-ablated baseline for a PRIOR claim]
     CTRL --> BK[Backbone -- data-ORIGIN-date HARD every positive + membership-clean split]
     BK --> MAG[Magnitude gate -- externally-anchored MIE / capability / phenomenon-vs-null]
-    MAG --> MECH[Mechanism -- ablation + specificity]
+    MAG --> MECH[Mechanism -- red/blue-CONSTRUCTED ablation, frozen, + specificity]
     MECH --> ICON[Importance-consequence -- templated, incumbent value separated at MIE]
     ICON --> NOV[Novelty re-audit -- fail-closed, positive-delta, pre-scoring + submit-refresh]
     NOV --> ONE[Scored ONCE -- provisional, within-hypothesis BH]
@@ -192,14 +192,50 @@ On dev/public data only. Adaptive, cumulative, and STEERING.
 Between discovery and the referee sits the SUBSTRATE. Three parties, none grading its own work.
 The AGENT (Tier 1) proposes and matures a hypothesis and contributes only its own opinion
 (`believed_claim`). The SUBSTRATE runs the gate experiments and MEASURES the evidence: the G0
-detectability probe, the mechanism ablation, the novelty audit, the backbone check, and the
-consequence experiment, assembling a provenance-verified bundle of gate inputs. The REFEREE
+detectability probe, the mechanism ablation (using the red/blue-constructed, frozen ablation from
+3c), the novelty audit, the backbone check, and the consequence experiment, assembling a
+provenance-verified bundle of gate inputs. The REFEREE
 (Tier 2) then judges those measurements. The referee never gates on a number the agent authored,
 this is what keeps a CONFIRMED verdict honest. A failed experiment produces the failing value, so
 the referee reads it as such rather than the substrate papering over it. In code the substrate is
 `engine.substrate` (the `Substrate` protocol, a `MockSubstrate` for the Mac pipeline, and an
 `ExperimentSubstrate` whose experiments are injected callables, mocked locally, real on the
 cluster where they score through `HFBackend` and query the research MCPs).
+
+## 3c. The ablation-construction framework (idea-agnostic mechanism ablation)
+
+The mechanism gate must remove the mechanism a hypothesis names and show the effect goes with it.
+WHICH mechanism, and therefore HOW to ablate it, is idea-specific, so a single hardcoded ablation (a
+temporal-frequency transform, say) would pin the engine to one domain. Instead the ablation is
+CONSTRUCTED per idea by a deterministic red/blue loop over an idea-AGNOSTIC primitive library. The
+framework is agnostic; every ablation it emits is idea-specific (the instruction set is general, the
+program it assembles is specific).
+
+- **Agnostic primitives.** A small vetted set of general removal operations with no domain in them:
+  spectral masking along an axis, subspace projection-out, component / attention-head zeroing,
+  input-region masking. Each is a mathematical operation, not an idea. Temporal-frequency ablation is
+  not special, it is the spectral-mask primitive parameterized to the time axis and the high bands.
+- **Blue builds.** A BLUE subagent (a `claude -p` role, spawned DETERMINISTICALLY by the loop, the same
+  mechanism as the reviewer / significance adversaries, not the main agent deciding to spawn)
+  parameterizes and composes primitives into a candidate ablation that removes the named mechanism and
+  only that.
+- **Red attacks.** A RED panel attacks the candidate on three axes, each a concrete control experiment:
+  SPECIFICITY (on data where the mechanism is absent, the ablation must not move the score),
+  ANTI-COLLUSION (where the effect is not due to the mechanism, the effect must SURVIVE the ablation,
+  catching one rigged to trivially kill the effect), and CONFOUND (the ablation introduces no gross
+  artifact that wrecks the input).
+- **Converge or fail closed.** Blue revises against red's refutations until a red panel cannot refute
+  across N independent attacks within K rounds. The converged ablation is FROZEN and provenance-stamped.
+  If the loop cannot converge, the idea is marked "no clean ablation found" and fails the mechanism gate
+  CLOSED, it never falls back to an unverified ablation.
+- **Re-run under the frozen referee.** Construction is a Tier-1 discovery activity on dev data; its
+  output is one frozen ablation spec. The Tier-2 mechanism gate re-runs that EXACT spec on the touch-once
+  box, so an ablation that gamed dev data is caught by the frozen re-run.
+
+This is the idea-agnostic replacement for a name-keyed ablation registry: the `resolve_ablation` seam
+becomes a call into the construction loop, so the mechanism experiment ablates whatever an idea names
+with no per-mechanism hardcoding. A primitive the library lacks is proposed by blue and admitted only
+after it passes its own red/blue vetting, so the library grows safely rather than capping coverage.
 
 ## 4. Tier 2 -- Confirmation (the referee)
 
