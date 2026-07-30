@@ -1,0 +1,11 @@
+{
+  "_comment": "Human-owned acceptance constants for the gate config. Vignan edits these, then runs `uv run python scripts/sign_config.py` to pin the three catalogs and sign. The script fills in the code-derived digests (gate library, control catalog, the three catalogs); do NOT add those by hand.",
+  "_mie_note": "mde (0.005) is the DETECTABILITY floor; mie_floor (0.01) is the INTEREST floor and must stay strictly above mde. 0.01 matches the lenient SSv2 per-task MIE (K400 is 0.011). NOTE: runner.py currently reads this flat mie_floor as THE operative MIE; the per-task mie_distribution catalog value is pinned by signing but not yet resolved per-task in the runner. Set mie_floor to the target task's catalog MIE per campaign until that resolution is wired.",
+  "version": "1",
+  "alpha": 0.05,
+  "power": 0.8,
+  "mde": 0.005,
+  "mie_floor": 0.01,
+  "claim_types": ["effect", "capability", "qualitative_phenomenon", "law_shape"],
+  "key_id": "vignan-2026"
+}
