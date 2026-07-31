@@ -14,8 +14,18 @@ class BanditError(Exception):
 
 
 class Bandit:
-    def __init__(self, n_arms: int, seed: int = 0, storage: str | None = None,
-                 study_name: str | None = None):
+    def __init__(self, n_arms: int | None = None, seed: int = 0, storage: str | None = None,
+                 study_name: str | None = None, *, arms=None):
+        # The arm space is EITHER a set of named veins (SPEC 3: the diversity axis is the bandit's
+        # arm space) OR an anonymous integer count. `arms` wins when given; `arm_label` maps an arm
+        # index back to its vein so a caller steers over veins, not opaque integers.
+        if arms is not None:
+            self.arms = tuple(arms)
+            n_arms = len(self.arms)
+        elif n_arms is not None:
+            self.arms = tuple(range(n_arms))
+        else:
+            raise ValueError("Bandit needs either n_arms or arms")
         self.n_arms = n_arms
         self.study = optuna.create_study(
             direction="maximize",
@@ -40,6 +50,10 @@ class Bandit:
         if not any(t.state == optuna.trial.TrialState.COMPLETE for t in self.study.trials):
             raise BanditError("no completed trials: best_arm is undefined until a trial is told")
         return self.study.best_params["arm"]
+
+    def arm_label(self, arm: int):
+        """Map an arm index to its vein label (or the integer itself for an anonymous arm space)."""
+        return self.arms[arm]
 
     def n_trials(self) -> int:
         return len(self.study.trials)
