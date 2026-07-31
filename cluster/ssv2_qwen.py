@@ -14,7 +14,7 @@ import torch
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
-ROOT = Path("/scratch/kamarthi_v_neu/ssv2")
+ROOT = Path("/work/neu/p2026_0016_neu/ssv2")
 VIDEOS = ROOT / "videos" / "20bn-something-something-v2"
 MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 NFRAMES = 8

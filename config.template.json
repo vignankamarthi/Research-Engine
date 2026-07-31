@@ -1,6 +1,6 @@
 {
   "_comment": "Human-owned acceptance constants for the gate config. Vignan edits these, then runs `uv run python scripts/sign_config.py` to pin the three catalogs and sign. The script fills in the code-derived digests (gate library, control catalog, the three catalogs); do NOT add those by hand.",
-  "_mie_note": "mde (0.005) is the DETECTABILITY floor; mie_floor (0.01) is the INTEREST floor and must stay strictly above mde. 0.01 matches the lenient SSv2 per-task MIE (K400 is 0.011). NOTE: runner.py currently reads this flat mie_floor as THE operative MIE; the per-task mie_distribution catalog value is pinned by signing but not yet resolved per-task in the runner. Set mie_floor to the target task's catalog MIE per campaign until that resolution is wired.",
+  "_mie_note": "mde (0.005) is the DETECTABILITY floor. mie_floor (0.01) is the INTEREST floor and must stay strictly above mde. RESOLVED (2026-07-30): runner.py now reads the signed per-task mie_distribution value via referee.catalog.resolve_mie, flowing through bundle.mie, and mie_floor is only the FALLBACK for a task with no signed entry. Hand-setting mie_floor per campaign is no longer needed. Per-task MIEs live in the signed catalog (SSv2 0.01, K400 0.011, tomato_temporal_mcq 0.03).",
   "version": "1",
   "alpha": 0.05,
   "power": 0.8,

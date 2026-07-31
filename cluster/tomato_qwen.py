@@ -46,18 +46,29 @@ def classify_mcq(model, processor, frames, question, options):
     return processor.batch_decode(gen, skip_special_tokens=True)[0].strip()
 
 
-def score_items(items, model, processor, path_for, ablate_keep=None, ablation_fn=None):
+def score_items(items, model, processor, path_for, ablate_keep=None, ablation_fn=None,
+                guess_on_fail=False):
     """Per-item correctness over TOMATO items. Each item: {question, options, answer, key}.
-    `path_for(key) -> video file path`. Ablation applies to the decoded frames (mechanism pass)."""
+    `path_for(item) -> video file path`. Ablation applies to the decoded frames (mechanism pass).
+
+    `guess_on_fail=True` is for the untrained FLOOR arm: a weights-randomized model that cannot
+    produce a valid option index GUESSES at chance (a per-item deterministic random choice) instead
+    of scoring a fail-closed wrong. This gives a fair CHANCE-level baseline (~1/n_options) rather than
+    an identically-zero vector that both trivializes the FLOOR residual and trips the FLOOR's
+    stub-rejection guard. The trained arm keeps the fail-closed wrong (an unparseable answer is a real
+    failure of the model that claims the capability)."""
+    import random
     scores = []
     for it in items:
-        frames = ssv2_qwen.decode_frames(path_for(it["key"]))
+        frames = ssv2_qwen.decode_frames(path_for(it))
         if ablation_fn is not None:
             frames = np.clip(np.asarray(ablation_fn(frames)), 0, 255).astype(np.uint8)
         elif ablate_keep is not None:
             frames = ssv2_qwen.spectral_mask_time(frames, ablate_keep)
         reply = classify_mcq(model, processor, frames, it["question"], list(it["options"]))
         pred = _parse_choice(reply, len(it["options"]))
+        if pred == -1 and guess_on_fail:
+            pred = random.Random(str(it["key"])).randrange(len(it["options"]))
         ok = 1.0 if pred == int(it["answer"]) else 0.0
         scores.append(ok)
         print(f"{it['key']}: pred={pred} true={it['answer']} {'OK' if ok else 'x'}", flush=True)

@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-SSV2 = Path("/scratch/kamarthi_v_neu/ssv2")
+SSV2 = Path("/work/neu/p2026_0016_neu/ssv2")
 sys.path.insert(0, str(SSV2))
 RPC = SSV2 / "rpc"
 

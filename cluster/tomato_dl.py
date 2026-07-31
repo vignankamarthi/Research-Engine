@@ -6,7 +6,7 @@ import sys
 import urllib.request
 
 TOK = open(os.path.expanduser("~/.cache/huggingface/token")).read().strip()
-DIR = "/scratch/kamarthi_v_neu/tomato"
+DIR = "/work/neu/p2026_0016_neu/tomato"
 REPO = "yale-nlp/TOMATO"
 os.makedirs(DIR, exist_ok=True)
 

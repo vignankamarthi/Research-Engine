@@ -67,7 +67,7 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 | torch Blackwell build | model runs | in-job numerical known-answer test against a golden tensor, plus device and version asserts | silent CPU or PTX-JIT fallback, or a numeric drift | HALT | CORE |
 | transformers | model loading | import plus pinned version | API contract break | HALT | CORE |
 | Network egress (compute nodes) | pulls and writes reach out | a canary fetch and a canary MLflow write from inside a job | egress blocked, silent cache use | QUARANTINE | CORE |
-| Scratch purge | data not silently deleted | files touched within the 30-day window, critical artifacts mirrored to `/work` | a checkpoint or manifest aged out | QUARANTINE | CORE |
+| Scratch purge | data not silently deleted | ALL datasets + cluster ops live under `/work/neu/p2026_0016_neu` (snapshot-backed, ratified 2026-07-30), NOT `/scratch` which AICR purges on inactivity; probe that no work-product path resolves under `/scratch` and that `/work` free space is above a floor | a dataset / checkpoint / manifest found on `/scratch`, or a `/work` path aged out (should not happen) | QUARANTINE | CORE |
 | Home disk quota | no truncated writes | free space above a floor before a job writes | quota full, truncated checkpoint | HALT | CORE |
 
 ## Data and persistence
@@ -86,8 +86,8 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 
 | Entry | Purpose | Probe | Break signature | State | Status |
 |---|---|---|---|---|---|
-| Semantic Scholar MCP | occupancy, novelty re-audit (PRE-allocation) | a freshness check (a known-recent item returns, corpus release id recorded) | stale cache returns old results, or rate-limited | RETRY (novelty runs before the box is leased, so a stale corpus defers the check, never fail-closed-rejects a scored finding) | LIVE |
-| arXiv MCP | paper mining | freshness check returns hits | brief outage | RETRY | LIVE |
+| Semantic Scholar MCP | occupancy, novelty re-audit (PRE-allocation), AND grounded generation (scouts mine the derivative veins: limitations / future-work / contradictions), Milestone 8 step 51 | a freshness check (a known-recent item returns, corpus release id recorded) | stale cache returns old results, or rate-limited | RETRY (novelty runs before the box is leased, so a stale corpus defers the check, never fail-closed-rejects a scored finding; a stale corpus at GENERATION time only narrows breadth, never a validity risk) | LIVE |
+| arXiv MCP | paper mining for grounded generation (vein sourcing, step 51) + novelty | freshness check returns hits | brief outage | RETRY | LIVE |
 | Scite MCP | believed-claim check | auth valid, a test query returns | OAuth expired or monthly cap hit | park THAT ONE finding in a provisional "null pending certification" bucket for human triage, NEVER blocks the pool (every other finding routes and assembles normally), a persistent cap ESCALATES | LIVE |
 | Parallel Research MCP | deep research | `task_status` ok | down | DEGRADE-WITH-BUFFER | LIVE |
 | HF Papers + Hub cards | paper-to-artifact bridge, trending recency, backbone cutoff dates | a known-recent daily paper returns and a model-card cutoff is readable | stale or down | RETRY | LIVE |
@@ -97,7 +97,7 @@ Verified INSIDE the trusted process at every use (a preflight check is a TOCTOU 
 | Entry | Purpose | Probe | Break signature | State | Status |
 |---|---|---|---|---|---|
 | Python engine (`src/engine`) | orchestration | `uv run pytest` green | tests red | HALT | LIVE |
-| Claude Code subagents (`claude -p`) | discovery agents | a real proposal returns and parses | CLI failure or unparseable output | RETRY then HALT | LIVE |
+| Claude Code subagents (`claude -p`) | discovery agents: the grounded-generation scouts (51), the reviewer + significance adversaries (52), and the synthesizer (53), plus the propose / mature / frame roles already live | a real proposal returns and parses | CLI failure or unparseable output | RETRY then HALT | LIVE (propose / mature / frame; scouts + adversaries + synthesizer land in Milestone 8) |
 | Ablation-construction subagents (`claude -p` blue / red) | build + adversarially verify the per-idea mechanism ablation (3c) | blue returns a parseable primitive composition, the red panel returns verdicts, the loop converges within K rounds | CLI failure, unparseable output, or no convergence in K rounds | RETRY on CLI failure then HALT; NO-CONVERGENCE marks the idea "no clean ablation found" and fails the mechanism gate closed | LIVE (`engine.ablation_construction`, red's concrete control-experiment backing is a cluster enhancement) |
 | Ablation primitive library | the vetted idea-AGNOSTIC removal ops blue composes (spectral mask, subspace projection, channel zeroing) | each primitive passes its specificity self-test on a synthetic control (removes its target, moves nothing where the target is absent) | a primitive fails its self-test, or the library cannot express a named mechanism | the failing primitive is disabled (fail-closed); an inexpressible mechanism goes to blue for a new vetted primitive, else "no clean ablation found" | LIVE (`engine.ablation_primitives`, 3 vetted primitives) |
 | Stats libs (scipy, statsmodels, pingouin) | acceptance math (standard BH, no bespoke e-BH) | import plus known-answer tests, differential-tested against a named third-party reference | version drift or a KAT mismatch | HALT | CORE |

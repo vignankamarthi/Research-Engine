@@ -35,7 +35,7 @@ from referee import normalize_schema  # noqa: E402
 from referee.lease import LeaseStore  # noqa: E402
 
 CLUSTER = "aicr"
-RPC = "/scratch/kamarthi_v_neu/ssv2/rpc"
+RPC = "/work/neu/p2026_0016_neu/ssv2/rpc"
 LABELS = Path.home() / "Downloads" / "labels"
 
 

@@ -15,6 +15,8 @@ sys.path.insert(0, "src")
 
 from backend import Box, MockBackend
 from engine import ClaudeCodeAgent, run_campaign
+from engine.handoff import accept_as_proposed
+from engine.substrate import MockSubstrate
 from gateconfig import validate_config
 from referee import normalize_schema
 from referee.lease import LeaseStore
@@ -58,7 +60,8 @@ def main():
 
     # Force the agent's proposed claim through (the MockBackend supplies the effect).
     agent_fixed = _PinnedProposalAgent(agent, schema_raw)
-    result = run_campaign(agent_fixed, backend, cfg(), lease, box_factory)
+    result = run_campaign(agent_fixed, backend, cfg(), lease, box_factory,
+                          substrate=MockSubstrate(), triage=accept_as_proposed)
 
     print("\nSTEP 3  result")
     v = result.verdict

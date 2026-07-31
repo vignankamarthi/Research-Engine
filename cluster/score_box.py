@@ -42,5 +42,5 @@ def main(out_path: str, n: int = 400, seed: int = 0) -> None:
 
 
 if __name__ == "__main__":
-    out = sys.argv[1] if len(sys.argv) > 1 else "/scratch/kamarthi_v_neu/re_smoke_effect.npy"
+    out = sys.argv[1] if len(sys.argv) > 1 else "/work/neu/p2026_0016_neu/re_smoke_effect.npy"
     main(out)

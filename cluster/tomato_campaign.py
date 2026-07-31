@@ -3,7 +3,6 @@ dispatches MCQ scoring to the cluster TOMATO service (`tomato_service.py`) over 
 TOMATO is backbone-clean (self-recorded/synthetic clips), so the backbone gate should PASS and the
 full magnitude/mechanism/consequence/novelty gauntlet runs toward a real verdict. Auto-accept triage.
 Run locally: uv run python cluster/tomato_campaign.py"""
-import glob
 import json
 import subprocess
 import sys
@@ -14,7 +13,6 @@ from datetime import date
 from pathlib import Path
 
 import numpy as np
-import pyarrow.parquet as pq
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
@@ -33,7 +31,7 @@ from referee import normalize_schema  # noqa: E402
 from referee.lease import LeaseStore  # noqa: E402
 
 CLUSTER = "aicr"
-RPC = "/scratch/kamarthi_v_neu/tomato/rpc"
+RPC = "/work/neu/p2026_0016_neu/tomato/rpc"
 QA = Path.home() / "Downloads"  # parquets live in the Mac scratchpad; overridden below
 TASK = "tomato_temporal_mcq"
 
@@ -60,19 +58,13 @@ def rpc_score(items, ablate_keep=None, timeout=1800):
     raise TimeoutError(f"rpc {rid} timed out")
 
 
-def load_items(data_dir):
-    items = []
-    for f in glob.glob(str(Path(data_dir) / "*.parquet")):
-        df = pq.read_table(f).to_pandas()
-        for _, r in df.iterrows():
-            items.append({"key": r["key"], "demonstration_type": r["demonstration_type"],
-                          "question": r["question"], "options": list(r["options"]),
-                          "answer": int(r["answer"])})
-    return items
+def load_items(items_json):
+    # pre-converted from the TOMATO parquets to JSON (stdlib read, no pyarrow dep in the run env)
+    return json.load(open(items_json))
 
 
 def main():
-    data_dir = sys.argv[1] if len(sys.argv) > 1 else str(REPO.parent)  # pass the parquet dir
+    items_json = sys.argv[1]  # path to the pre-converted tomato_items.json
     pub = (REPO / "keys" / "signing_pub.key").read_bytes()
     config = verify_config((REPO / "signed_config.json").read_bytes(), pub)
     cons = json.load(open(REPO / "catalogs" / "consequence_templates.json"))
@@ -80,7 +72,7 @@ def main():
     mie = json.load(open(REPO / "catalogs" / "mie_distribution.json"))
     log(f"config verified: key_id={config.key_id} mie_floor={config.mie_floor}")
 
-    items = load_items(data_dir)
+    items = load_items(items_json)
     rng = np.random.default_rng(0)
     rng.shuffle(items)
     dev, rest = items[:8], items[8:]
