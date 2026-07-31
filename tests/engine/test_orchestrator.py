@@ -92,6 +92,56 @@ def test_reviewer_rejection_blocks_maturation_and_spends_no_box(tmp_path):
     assert ls.box_status("b0") == "live"
 
 
+class _MockSynth:
+    """A synthesizer that unifies any cluster under one thesis with a NON-entailed joint prediction, so
+    `decide_arc` freezes an arc. The joint claim is a distinct string, so it hashes to a fresh lineage."""
+
+    def synthesize(self, findings):
+        from engine.discovery_roles import Synthesis
+        return Synthesis(thesis="shared temporal thesis",
+                         joint_prediction="the joint arc prediction holds",
+                         entailed_by_single=False)
+
+
+def test_mid_campaign_synthesizer_freezes_and_confirms_an_arc(tmp_path):
+    # once two positive findings cluster, the synthesizer freezes a joint-prediction claim and the loop
+    # confirms it on its OWN reserved box mid-campaign, so close reads a real verdict for the arc.
+    ls = LeaseStore(str(tmp_path / "loop.db"))
+    ls.add_boxes([f"b{i}" for i in range(12)])
+    reason, report, campaign = run_loop(
+        agent=_VaryingAgent(), backend=MockBackend(0.25, 0.0, 0.1, seed=1), config=cfg(),
+        lease_store=ls, box_factory=_box_factory, substrate=MockSubstrate(),
+        triage=accept_as_proposed, reviewer=MockReviewerAdversary(),
+        budget=Budget.default(max_gpu_hours=100, max_boxes=10, max_maturations=6),
+        halt_flag=HaltFlag(str(tmp_path / "halt")), health_gate=HealthGate([]), seed=0,
+        synthesizer=_MockSynth())
+    assert campaign.arc is not None                      # two positives clustered -> arc frozen
+    assert campaign.lead_arc_confirmed                   # the joint-prediction box confirmed
+    assert any(r.schema.claim.startswith("the joint arc prediction") for r in campaign.results)
+
+
+def test_entailed_synthesis_freezes_no_arc(tmp_path):
+    # if the joint prediction is already entailed by a single finding, decide_arc is False and no arc is
+    # frozen (the findings ship separately); nothing is enqueued and lead_arc_confirmed stays False.
+    class _Entailed:
+        def synthesize(self, findings):
+            from engine.discovery_roles import Synthesis
+            return Synthesis(thesis="t", joint_prediction="jp", entailed_by_single=True)
+
+    ls = LeaseStore(str(tmp_path / "loop.db"))
+    ls.add_boxes([f"b{i}" for i in range(12)])
+    _, _, campaign = run_loop(
+        agent=_VaryingAgent(), backend=MockBackend(0.25, 0.0, 0.1, seed=1), config=cfg(),
+        lease_store=ls, box_factory=_box_factory, substrate=MockSubstrate(),
+        triage=accept_as_proposed, reviewer=MockReviewerAdversary(),
+        budget=Budget.default(max_gpu_hours=100, max_boxes=10, max_maturations=5),
+        halt_flag=HaltFlag(str(tmp_path / "halt")), health_gate=HealthGate([]), seed=0,
+        synthesizer=_Entailed())
+    assert campaign.arc is None
+    assert not campaign.lead_arc_confirmed
+    assert not any(r.schema.claim == "jp" for r in campaign.results)
+
+
 def test_loop_resumes_from_the_durable_bank_without_rescoring(tmp_path):
     # a crash-restart on the SAME lease db must continue from the durable maturation count and NEVER
     # re-score a box the first run already spent (the one-grant bars re-claiming a spent lineage).

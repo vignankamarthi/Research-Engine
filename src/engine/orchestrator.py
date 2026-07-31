@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from .bandit import Bandit
 from .campaign import run_campaign
+from .discovery_roles import decide_arc
 from .generation import GENERATIVE_VEINS, VEINS, choose_mode
 from .steering import BREADTH, DEPTH, SteeringPolicy
 from .supervisor import SupervisorState, run_supervisor
@@ -27,6 +28,43 @@ from .supervisor import SupervisorState, run_supervisor
 # statuses that spent a box (a look in the selection family)
 _SCORED = ("CONFIRMED", "STRONG", "CONFIRMED_EFFECT", "CONFIRMED_NEGATIVE", "FAILED", "INCONCLUSIVE")
 _NEGATIVE = ("FAILED", "INCONCLUSIVE", "CONFIRMED_NEGATIVE")
+_POSITIVE = ("CONFIRMED", "STRONG", "CONFIRMED_EFFECT")  # a finding an arc can be built from
+
+
+class _FixedClaimAgent:
+    """Runs one PRE-FORMED claim (the synthesizer's joint prediction) through the normal confirm cycle.
+    `propose` ignores the discovery context and returns the frozen schema; `mature`/`frame` delegate to
+    the base agent, so the arc claim is matured, triaged, and scored on its own reserved box exactly
+    like a scout candidate, and close reads a real verdict rather than an unscoreable post-hoc claim."""
+
+    def __init__(self, base, schema: dict):
+        self._base, self._schema = base, schema
+
+    def propose(self, context):
+        return [dict(self._schema)]
+
+    def mature(self, schema_raw):
+        return self._base.mature(schema_raw)
+
+    def frame(self, schema_raw, verdict):
+        return self._base.frame(schema_raw, verdict)
+
+
+def _positive_cluster(results):
+    """The findings an arc can unify: the matured-and-scored POSITIVE results. Returns the cluster once
+    at least two exist (the synthesizer then judges whether they form a real arc), else None."""
+    positive = [r for r in results if r.verdict is not None and r.verdict.status in _POSITIVE]
+    return positive if len(positive) >= 2 else None
+
+
+def _joint_schema(cluster, synth) -> dict:
+    """Build the joint-prediction claim as its OWN confirmable schema. It inherits the shared conditions
+    of the clustered findings (dataset / backbone / scale / measure / claim-type) and carries the
+    synthesizer's joint prediction as the claim and the thesis as the mechanism the arc rests on."""
+    s = cluster[0].schema
+    return {"claim": synth.joint_prediction, "claim_type": s.claim_type, "backbone": s.backbone,
+            "dataset": s.dataset, "scale": s.scale, "measure": s.measure, "prior_claim": False,
+            "mechanism": synth.thesis or "joint_thesis", "believed_claim": True}
 
 
 @dataclass
@@ -36,6 +74,9 @@ class Campaign:
     negative_bank: set = field(default_factory=set)  # lineage keys of dead ends, steered around
     depth: int = 0
     breadth: int = 0
+    arc: object = None                                # the frozen mid-campaign Synthesis (once)
+    lead_arc_confirmed: bool = False                  # did the arc's joint-prediction box confirm
+    pending_arc: list = field(default_factory=list)   # joint-prediction schemas awaiting a reserved box
 
 
 def _reward(verdict) -> float:
@@ -49,29 +90,55 @@ def _reward(verdict) -> float:
 
 
 def build_step_fn(*, agent, backend, config, lease_store, box_factory, substrate, triage,
-                  reviewer, bandit, policy, campaign, veins=VEINS, significance=None):
+                  reviewer, bandit, policy, campaign, veins=VEINS, significance=None,
+                  synthesizer=None):
     def step_fn(state: SupervisorState) -> SupervisorState:
-        trial, arm = bandit.ask()
-        vein = bandit.arm_label(arm)  # a NAMED vein, the bandit's arm space is the vein set now
-        # generative veins bias toward BREADTH, derivative toward DEPTH; steering then honors the
-        # depth-floor / breadth-cap on the margin.
-        pick = BREADTH if vein in GENERATIVE_VEINS else DEPTH
-        mode = choose_mode(pick, campaign.depth, campaign.breadth, policy)
-        context = {"vein": vein, "mode": mode, "negative_bank": sorted(campaign.negative_bank)}
-
-        result = run_campaign(agent, backend, config, lease_store, box_factory,
-                              substrate=substrate, triage=triage, context=context, reviewer=reviewer,
-                              significance=significance)
-        campaign.results.append(result)
-        bandit.tell(trial, _reward(result.verdict))
-
-        scored = result.verdict is not None and result.verdict.status in _SCORED
-        if scored and result.verdict.status in _NEGATIVE:
-            campaign.negative_bank.add(result.lineage)
-        if mode == DEPTH:
-            campaign.depth += 1
+        if campaign.pending_arc:
+            # A frozen ARC claim takes priority: it has a reserved slot, so its joint-prediction box is
+            # scored rather than left an unscoreable post-hoc claim at close. It is not a bandit arm, so
+            # it neither rewards the bandit nor counts as depth/breadth.
+            result = run_campaign(
+                _FixedClaimAgent(agent, campaign.pending_arc.pop(0)), backend, config, lease_store,
+                box_factory, substrate=substrate, triage=triage, context=None, reviewer=reviewer,
+                significance=significance)
+            campaign.results.append(result)
+            if result.verdict is not None and result.verdict.status in _POSITIVE:
+                campaign.lead_arc_confirmed = True
+            scored = result.verdict is not None and result.verdict.status in _SCORED
         else:
-            campaign.breadth += 1
+            trial, arm = bandit.ask()
+            vein = bandit.arm_label(arm)  # a NAMED vein, the bandit's arm space is the vein set now
+            # generative veins bias toward BREADTH, derivative toward DEPTH; steering then honors the
+            # depth-floor / breadth-cap on the margin.
+            pick = BREADTH if vein in GENERATIVE_VEINS else DEPTH
+            mode = choose_mode(pick, campaign.depth, campaign.breadth, policy)
+            context = {"vein": vein, "mode": mode, "negative_bank": sorted(campaign.negative_bank)}
+
+            result = run_campaign(agent, backend, config, lease_store, box_factory,
+                                  substrate=substrate, triage=triage, context=context, reviewer=reviewer,
+                                  significance=significance)
+            campaign.results.append(result)
+            bandit.tell(trial, _reward(result.verdict))
+
+            scored = result.verdict is not None and result.verdict.status in _SCORED
+            if scored and result.verdict.status in _NEGATIVE:
+                campaign.negative_bank.add(result.lineage)
+            if mode == DEPTH:
+                campaign.depth += 1
+            else:
+                campaign.breadth += 1
+
+        # MID-CAMPAIGN SYNTHESIS: once two positive findings cluster and no arc is frozen yet, the
+        # synthesizer freezes a joint-prediction claim and enqueues it as its OWN confirmable claim with
+        # a reserved slot, so close reads a verdict that already exists (SPEC 3, steps 33 / 58). It fires
+        # mid-campaign, never at close, else the joint-prediction box could never be scored.
+        if synthesizer is not None and campaign.arc is None:
+            cluster = _positive_cluster(campaign.results)
+            if cluster is not None:
+                synth = synthesizer.synthesize([r.schema for r in cluster])
+                if decide_arc(synth):
+                    campaign.arc = synth
+                    campaign.pending_arc.append(_joint_schema(cluster, synth))
 
         matured_scored = 1 if scored else 0
         return SupervisorState(
@@ -83,7 +150,7 @@ def build_step_fn(*, agent, backend, config, lease_store, box_factory, substrate
 
 def run_loop(*, agent, backend, config, lease_store, box_factory, substrate, triage, reviewer,
              budget, halt_flag, health_gate, seed: int = 0, stall_limit: int = 40, veins=VEINS,
-             significance=None):
+             significance=None, synthesizer=None):
     """Assemble + run the discovery loop to the budget, then close the campaign. Returns
     (terminal_reason, PoolReport, Campaign)."""
     from .pool import close_campaign
@@ -102,7 +169,7 @@ def run_loop(*, agent, backend, config, lease_store, box_factory, substrate, tri
     step_fn = build_step_fn(agent=agent, backend=backend, config=config, lease_store=lease_store,
                             box_factory=box_factory, substrate=substrate, triage=triage,
                             reviewer=reviewer, bandit=bandit, policy=policy, campaign=campaign,
-                            veins=veins, significance=significance)
+                            veins=veins, significance=significance, synthesizer=synthesizer)
     reason = run_supervisor(step_fn, budget, halt_flag, health_gate, state=state,
                             stall_limit=stall_limit)
     report = close_campaign(campaign.results)

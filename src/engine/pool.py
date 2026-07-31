@@ -109,7 +109,10 @@ _SCORED_STATUSES = ("CONFIRMED", "STRONG", "CONFIRMED_EFFECT", "CONFIRMED_NEGATI
                     "FAILED", "INCONCLUSIVE")
 
 
-def close_campaign(results, alpha: float = 0.05) -> PoolReport:
+def close_campaign(results, alpha: float = 0.05, *, lead_arc_confirmed=None) -> PoolReport:
+    # `lead_arc_confirmed` is the mid-campaign synthesizer's result (None when no synthesizer ran, so
+    # no depth line is claimed). When present, the close labels a foundational-arc vs breadth-only
+    # deliverable, so a breadth-only campaign is never dressed up as a foundational one.
     # EVERY box-touching result is a look in the selection family (matured-and-scored), whether or not
     # it carries a scalar p-value. A law_shape fit has no one-sided p-value, so it is COUNTED in N
     # (keeping the others' N-adjusted threshold honest for the true number of looks) but is not itself
@@ -127,7 +130,13 @@ def close_campaign(results, alpha: float = 0.05) -> PoolReport:
     ]
     expected_false = n * alpha
 
-    lines = [
+    lines = []
+    if lead_arc_confirmed is not None:
+        lines.append(
+            "Depth: the lead arc's joint-prediction claim CONFIRMED on its own box (foundational "
+            "deliverable)." if lead_arc_confirmed else
+            "Depth: NO foundational arc this campaign; the findings are breadth-only, not the deliverable.")
+    lines += [
         f"Campaign closed. {n} matured-and-scored, {len(submitted)} submit-bound after the "
         f"N-adjusted selection correction.",
         f"Expected false positives across the family (N x alpha): {expected_false:.2f}.",
