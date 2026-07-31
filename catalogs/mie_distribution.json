@@ -35,5 +35,28 @@
     "mie_percentile": 75,
     "mie_value": 0.011,
     "status": "CITED + leniency choice APPLIED (MIE = 0.011, the top-quartile of the 6 confirmed frontier deltas [0.001, 0.004, 0.010, 0.010, 0.011, 0.012]). The whole K400 set is already frontier SOTA-progression, so 0.011 is both the top-quartile and the lenient value, there is no lower defensible number. Vignan verifies + signs. K400 near-saturated, SOTA moved only ~89.9 (2022) to 92.1 (2024). A CoVeR +2.4 pt claim was EXCLUDED (arXiv ID/DOI unverifiable)."
+  },
+  "intphys2_physics_binary": {
+    "accepted_effect_sizes": [0.015, 0.019, 0.019, 0.052],
+    "effect_size_sources": [
+      {"delta": 0.015, "paper": "VideoMAEv2-g over Qwen2.5-VL on IntPhys 2 (52.27 -> 53.75)", "doi": "10.48550/arXiv.2506.09849"},
+      {"delta": 0.019, "paper": "Gemini 2.5 Flash over VideoMAEv2-g on IntPhys 2 (53.75 -> 55.63)", "doi": "10.48550/arXiv.2506.09849"},
+      {"delta": 0.019, "paper": "V-JEPA 2 over Gemini 2.5 Flash on IntPhys 2 (55.63 -> 57.5)", "doi": "10.48550/arXiv.2506.09849"},
+      {"delta": 0.052, "paper": "V-JEPA 2 best-overall over the Qwen2.5-VL baseline on IntPhys 2 (52.27 -> 57.5)", "doi": "10.48550/arXiv.2506.09849"}
+    ],
+    "mie_percentile": 75,
+    "mie_value": 0.03,
+    "status": "STARTER for the effect/phenomenon run (Vignan verifies + signs). IntPhys 2 (arXiv:2506.09849, Meta FAIR, Jun 2025) is synthetic Unreal renders, binary possible/impossible, judge-free. Chance 50 / Qwen2.5-VL 52.27 / best-MLLM Gemini 2.5 Flash 55.63 / best-overall V-JEPA 2 ~57.5 / human 96.44. Adjacent accepted method deltas ~+1.5-1.9 pt, best-over-baseline +5.2 pt. 0.03 (+3 pt) is a defensible top-quartile between the adjacent-method gains and the full field spread, above the 0.005 MDE. SIGNED MIE-ONLY (NO incumbent entry) so the classifier routes performance claims to EFFECT (a mechanism's trained-minus-untrained contrast), not capability, since a 7B VLM will not beat a specialized SOTA. VERIFY the exact SOTA row in arXiv:2506.09849 before signing (one automated fetch garbled a held-out sub-number, an implausible 98.3 pct; the robust facts are chance 50 / Qwen 52.27 / Gemini 55.63 / V-JEPA 2 ~57.5 / human 96.44)."
+  },
+  "videohallu_counterintuitive_qa": {
+    "accepted_effect_sizes": [0.003, 0.007, 0.045],
+    "effect_size_sources": [
+      {"delta": 0.045, "paper": "Video-R1 RL-post-trained over Gemini-2.5-Pro on VideoHallu (49.18 -> 53.64)", "doi": "10.48550/arXiv.2505.01481"},
+      {"delta": 0.007, "paper": "Qwen2.5-VL-7B over Qwen2.5-VL-32B on VideoHallu (52.66 -> 52.98)", "doi": "10.48550/arXiv.2505.01481"},
+      {"delta": 0.003, "paper": "narrow spread among the mid-field models on VideoHallu", "doi": "10.48550/arXiv.2505.01481"}
+    ],
+    "mie_percentile": 75,
+    "mie_value": 0.04,
+    "status": "OPTIONAL secondary (Vignan verifies + signs). VideoHallu (arXiv:2505.01481) is AI-generated 2025-video-gen counterintuitive QA, 987 clips / 3,233 QA, Apache-2.0, membership-clean. Models cluster 49-54 pct (no dominant incumbent), strongest accepted delta Video-R1 RL +4.46. 0.04 (+4 pt) top-quartile driven by the Video-R1 gain. CAVEAT: scoring is LLM-as-judge (GPT-4o-mini), NOT judge-free, so it adds a judge dependency + a reproducibility knob; IntPhys 2 is the cleaner primary. Signed MIE-ONLY (effect/phenomenon). Include only if you want a second dataset this run."
   }
 }
