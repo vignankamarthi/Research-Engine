@@ -164,3 +164,55 @@ def test_generate_wave_composes_stages():
     assert len(result.malformed) == 1                    # the bad one was logged, not fatal
     assert result.grounding.rate() == 1.0                # the survivor grounded
     assert result.ranked[0].candidate["vein"] == "limitations"
+
+
+# --- WaveAgent: the adapter that puts generate_wave behind run_campaign's agent contract ---
+
+class _FullScout(_Scout):
+    """A scout that also matures + frames, so it can stand in as the campaign's agent. Its well-formed
+    candidate carries `prior_claim` so the default lineage key (which normalizes the schema) resolves."""
+
+    def propose(self, context):
+        return [
+            {"claim": "temporal effect", "claim_type": "effect", "backbone": "iv2",
+             "dataset": "ssv2", "scale": "7b", "measure": "acc", "prior_claim": False,
+             "mechanism": "temporal_frequency", "grounding": "arXiv:2401.12345"},
+            {"claim": "malformed", "claim_type": "effect"},  # dropped by the envelope pre-lineage
+        ]
+
+    def mature(self, schema_raw):
+        return ("MATURED", schema_raw)
+
+    def frame(self, schema_raw, verdict):
+        return "narrative"
+
+
+def test_wave_agent_propose_runs_the_wave_and_returns_ranked_candidates():
+    from engine.generation import WaveAgent
+
+    agent = WaveAgent(_FullScout(), resolver=lambda i: True, wired_claim_types={"effect"})
+    ctx = build_generation_context(vein="limitations", mode=DEPTH)
+    candidates = agent.propose(ctx)
+    assert len(candidates) == 1                           # only the grounded, well-formed one
+    assert candidates[0]["vein"] == "limitations"         # stamped by the wave
+    assert agent.last_wave.grounding.rate() == 1.0        # WaveResult exposed for the orchestrator
+    assert len(agent.last_wave.malformed) == 1            # the drop is visible, not fatal
+
+
+def test_wave_agent_delegates_mature_and_frame_to_the_scout():
+    from engine.generation import WaveAgent
+
+    agent = WaveAgent(_FullScout(), resolver=lambda i: True, wired_claim_types={"effect"})
+    assert agent.mature({"claim": "c"}) == ("MATURED", {"claim": "c"})
+    assert agent.frame({"claim": "c"}, verdict=None) == "narrative"
+
+
+def test_wave_agent_empty_wave_returns_the_scout_fallback():
+    from engine.generation import WaveAgent
+
+    class _Empty(_FullScout):
+        def propose(self, context):
+            return []
+
+    agent = WaveAgent(_Empty(), resolver=lambda i: True, wired_claim_types={"effect"})
+    assert agent.propose(build_generation_context(vein="limitations", mode=DEPTH)) == [{}]

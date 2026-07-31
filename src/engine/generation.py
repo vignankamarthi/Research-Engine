@@ -244,3 +244,39 @@ def generate_wave(*, scout, context, wired_claim_types, resolver, negative_bank=
     return WaveResult(ranked=ranked, high_patience=bind_high_patience_slot(ranked),
                       grounding=grec, malformed=malformed_log, dead_ends=dead,
                       duplicates=duplicates)
+
+
+class WaveAgent:
+    """Adapts a blind SCOUT into the campaign's agent by running the whole `generate_wave` stage on
+    `propose`, so the assembled loop uses grounded, vein-diverse, envelope-constrained generation
+    WITHOUT changing `run_campaign`'s `agent.propose(context) -> candidates` contract. The scout's raw
+    proposals pass through stamping, the claim-type envelope, dead-end exclusion, grounding, and rank,
+    and the ranked candidates are what the campaign matures. `mature`/`frame` delegate to the scout.
+    The resolver and scorers are INJECTED (the real trusted-process arXiv/DOI resolver + the
+    significance-adversary's importance penalty on the cluster, mocks in tests), so the drift fix lands
+    in the loop while the grounding stays a trusted-process step the scout cannot forge. The last
+    `WaveResult` is exposed so the orchestrator can read the malformed/dead-end drops, the high-patience
+    slot, and the per-wave grounding rate for the concentration check."""
+
+    def __init__(self, scout, *, resolver, wired_claim_types, quality_of=None, importance_of=None):
+        self._scout = scout
+        self._resolver = resolver
+        self._wired = tuple(wired_claim_types)
+        self._quality_of = quality_of
+        self._importance_of = importance_of
+        self.last_wave: WaveResult | None = None
+
+    def propose(self, context):
+        wave = generate_wave(
+            scout=self._scout, context=context or {}, wired_claim_types=self._wired,
+            resolver=self._resolver, negative_bank=(context or {}).get("negative_bank", ()),
+            quality_of=self._quality_of, importance_of=self._importance_of)
+        self.last_wave = wave
+        candidates = [r.candidate for r in wave.ranked]
+        return candidates or [{}]  # the [{}] fallback matches the scout contract on an empty wave
+
+    def mature(self, schema_raw):
+        return self._scout.mature(schema_raw)
+
+    def frame(self, schema_raw, verdict):
+        return self._scout.frame(schema_raw, verdict)
