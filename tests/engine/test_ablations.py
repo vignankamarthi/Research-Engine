@@ -64,10 +64,10 @@ def test_build_mechanism_fn_dispatches_the_named_ablation():
 
     fn = build_mechanism_fn(
         score_task=score_task, specificity_check=lambda b, s, t: True, alpha=0.05)
-    lo, hi, spec = fn(backend=None, schema={"mechanism": "temporal_frequency", "dataset": "ssv2"})
+    contrast_lo, spec = fn(backend=None, schema={"mechanism": "temporal_frequency", "dataset": "ssv2"})
     assert calls[0] == ("ssv2", None)  # full model first
     assert calls[1][0] == "ssv2" and calls[1][1] is TEMPORAL_FREQUENCY  # then the named ablation
-    assert lo > 0.05 and hi < 0.05 and spec is True
+    assert contrast_lo > 0.05 and spec is True  # paired (0.10 - 0.0) contrast clears the MIE
 
 
 def test_task_is_read_from_the_claim_not_a_default():
@@ -84,10 +84,13 @@ def test_task_is_read_from_the_claim_not_a_default():
 
 
 def test_mechanism_fn_fails_closed_when_no_mechanism_named():
+    # a hypothesis naming NO mechanism cannot get a passing mechanism measurement: the gate fails
+    # CLOSED with a -inf contrast. It no longer RAISES and crashes the campaign (SPEC 3c) -- the
+    # referee reads the failing contrast and returns FAILED, and the run continues to the next idea.
     fn = build_mechanism_fn(
         score_task=lambda b, t, a: np.zeros(1), specificity_check=lambda b, s, t: True, alpha=0.05)
-    with pytest.raises(MechanismError):
-        fn(backend=None, schema={"dataset": "ssv2"})  # names a task but no mechanism
+    contrast_lo, spec = fn(backend=None, schema={"dataset": "ssv2"})  # names a task but no mechanism
+    assert contrast_lo == float("-inf") and spec is False
 
 
 def test_built_mechanism_fn_composes_into_the_substrate():
@@ -105,4 +108,19 @@ def test_built_mechanism_fn_composes_into_the_substrate():
     b = sub.produce(
         {"claim": "c", "mechanism": "temporal_frequency", "dataset": "ssv2"},
         backend=None, believed_claim=True)
-    assert b.mech_full_lo > 0.05 and b.mech_ablated_hi < 0.05 and b.specificity_ok is True
+    assert b.mech_contrast_lo > 0.05 and b.specificity_ok is True
+
+
+def test_mechanism_fn_fails_closed_on_no_clean_ablation():
+    # SPEC 3c: a non-converging red/blue construction (NoCleanAblation) FAILS the mechanism gate
+    # closed with a -inf contrast, it never propagates and crashes the campaign.
+    from engine.ablation_construction import NoCleanAblation
+
+    def raising(mechanism, task):
+        raise NoCleanAblation("no clean ablation")
+
+    fn = build_mechanism_fn(score_task=lambda b, t, a: np.full(10, 0.5),
+                            specificity_check=lambda b, s, t: True, alpha=0.05,
+                            resolve_ablation_fn=raising)
+    contrast_lo, spec = fn(backend=None, schema={"mechanism": "x", "dataset": "ssv2"})
+    assert contrast_lo == float("-inf") and spec is False

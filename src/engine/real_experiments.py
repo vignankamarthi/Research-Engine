@@ -5,6 +5,8 @@ callable at a time: consequence first, then the G0 probe, the mechanism ablation
 audit."""
 from __future__ import annotations
 
+import numpy as np
+
 from gatelib import g0_detectable, mean_ci
 from referee.catalog import incumbent_separated, resolve_consequence_template, resolve_incumbent
 
@@ -18,35 +20,51 @@ def real_g0(pipeline, *, mde: float, alpha: float, power_target: float = 0.8,
 
 
 def real_mechanism(*, score_full, score_ablated, specificity_ok: bool,
-                   alpha: float) -> tuple[float, float, bool]:
-    """The mechanism ablation. `score_full()` / `score_ablated()` return the per-item scores with
-    and without the mechanism (through the backend on the cluster). Produces
-    (mech_full_lo, mech_ablated_hi, specificity_ok): the full effect's LOWER CI and the ablated
-    effect's UPPER CI, which mechanism_check requires to straddle the MIE."""
-    full_lo, _ = mean_ci(score_full(), alpha)
-    _, ablated_hi = mean_ci(score_ablated(), alpha)
-    return full_lo, ablated_hi, bool(specificity_ok)
+                   alpha: float) -> tuple[float, bool]:
+    """The mechanism ablation. `score_full()` / `score_ablated()` return the PER-ITEM scores with
+    and without the mechanism, over the SAME items in the same order (through the backend on the
+    cluster). Produces (mech_contrast_lo, specificity_ok): the LOWER CI of the paired per-item
+    (full minus ablated) CONTRAST, which mechanism_check tests against the MIE. Judging the paired
+    contrast, not two absolute levels, keeps the gate scale-correct on a metric with a non-zero
+    chance floor (an MCQ task cannot score below chance, so requiring the ablated level below the
+    MIE was unsatisfiable)."""
+    full = np.asarray(score_full(), dtype=float)
+    ablated = np.asarray(score_ablated(), dtype=float)
+    if full.shape != ablated.shape:
+        raise ValueError(f"paired mechanism scores must align: {full.shape} vs {ablated.shape}")
+    contrast_lo, _ = mean_ci(full - ablated, alpha)
+    return contrast_lo, bool(specificity_ok)
 
 
-def real_novelty(schema, *, audit_fn, advance_argued: bool) -> tuple[bool, list, bool]:
-    """The novelty audit. `audit_fn(schema) -> (collision, k_nearest)` queries the research MCPs
-    (Semantic Scholar / arXiv / Scite on the cluster) for the mechanism in several phrasings.
-    Produces the three novelty inputs the referee gates on."""
-    collision, k_nearest = audit_fn(schema)
-    return bool(collision), list(k_nearest), bool(advance_argued)
+def real_novelty(schema, *, audit_fn) -> tuple[bool, list, bool]:
+    """The novelty audit. `audit_fn(schema)` queries the research MCPs (Semantic Scholar / arXiv /
+    Scite on the cluster) for the mechanism in several phrasings and returns either
+    (collision, k_nearest) or (collision, k_nearest, advance_argued). The positive-delta ADVANCE is
+    determined by the audit PARTY (and the human at triage), never read from the agent's proposal,
+    and is FAIL-CLOSED False when the audit does not assert one, so an agreeable proposal cannot
+    self-certify its own novelty."""
+    result = tuple(audit_fn(schema))
+    if len(result) == 3:
+        collision, k_nearest, advance = result
+    else:
+        collision, k_nearest = result
+        advance = False
+    return bool(collision), list(k_nearest), bool(advance)
 
 
-def resolve_consequence(claim_type: str, task: str, claimed_value: float, mie: float, *,
+def resolve_consequence(claim_type: str, task: str, measured_value: float, mie: float, *,
                         consequence_catalog: dict, consequence_digest: str,
                         incumbent_catalog: dict, incumbent_digest: str,
                         held_out_confirmed: bool) -> tuple[bool, bool]:
     """Produce (consequence_confirmed, incumbent_separated) from the SIGNED catalogs and the
-    held-out consequence result. Resolving verifies each catalog's digest, so a tampered catalog
-    raises (CatalogError) and a claim-type with no pre-registered template cannot get one at
-    handoff. The incumbent separation is computed from the claimed vs signed-incumbent value at
-    the MIE. `held_out_confirmed` is the outcome of the real held-out consequence experiment
-    (injected: mocked on the Mac, run through the backend on the cluster)."""
+    held-out consequence experiment. Resolving verifies each catalog's digest, so a tampered catalog
+    raises (CatalogError) and a claim-type with no pre-registered template cannot get one at handoff.
+    The incumbent separation is computed from the MEASURED held-out value versus the signed incumbent
+    at the MIE, NEVER the agent's claimed value, so a proposal cannot discharge the separation by
+    inflating a number it authored. The agent's claimed_value stays informational (its own belief),
+    not a gate input. Both `measured_value` and `held_out_confirmed` are outcomes of the real held-out
+    consequence experiment (injected: mocked on the Mac, run through the backend on the cluster)."""
     # Anti-HARKing: the consequence template must already exist in the signed catalog.
     resolve_consequence_template(claim_type, consequence_catalog, consequence_digest)
     incumbent_value = resolve_incumbent(task, incumbent_catalog, incumbent_digest)
-    return bool(held_out_confirmed), incumbent_separated(claimed_value, incumbent_value, mie)
+    return bool(held_out_confirmed), incumbent_separated(measured_value, incumbent_value, mie)

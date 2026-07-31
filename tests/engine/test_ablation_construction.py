@@ -95,14 +95,18 @@ def test_construction_loop_plugs_into_build_mechanism_fn():
                                   red_panel=[MockRedAttacker()], rounds=4)
 
     def score_task(backend, task, ablation):
-        # full model scores 0.10; the constructed ablation (spectral_mask) is applied, scores ~0
-        base = np.full((40, 6), 0.10)
-        return base.mean(axis=1) if ablation is None else ablation.apply(base).mean(axis=1)
+        # full model scores 0.40; with the mechanism ablated from the input the model does worse.
+        # The constructed ablation is applied to prove the seam is wired, and the ablated accuracy
+        # drops to the chance floor, so the paired contrast (0.40 - 0.10) clears the MIE.
+        if ablation is None:
+            return np.full(40, 0.40)
+        ablation.apply(np.full((40, 6), 1.0))  # the constructed ablation runs on the model input
+        return np.full(40, 0.10)
 
     fn = build_mechanism_fn(score_task=score_task, specificity_check=lambda b, s, t: True,
                             alpha=0.05, resolve_ablation_fn=resolve_via_construction)
-    lo, hi, spec = fn(backend=None, schema={"mechanism": "temporal_frequency", "dataset": "ssv2"})
-    assert lo > 0.05 and spec is True  # full effect present, ablation was constructed + applied
+    contrast_lo, spec = fn(backend=None, schema={"mechanism": "temporal_frequency", "dataset": "ssv2"})
+    assert contrast_lo > 0.05 and spec is True  # constructed ablation removes a drop above the MIE
 
 
 # --- the real claude -p roles (parse-tested with a canned runner, like the discovery roles) ---

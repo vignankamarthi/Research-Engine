@@ -22,7 +22,7 @@ def test_mock_substrate_satisfies_the_protocol():
 def _fixed_experiments(**over):
     exp = dict(
         g0_fn=lambda backend, schema: True,
-        mechanism_fn=lambda backend, schema: (0.06, 0.01, True),
+        mechanism_fn=lambda backend, schema: (0.05, True),
         novelty_fn=lambda schema: (False, ["a", "b"], True),
         backbone_fn=lambda schema: (date(2023, 1, 1), True),
         consequence_fn=lambda schema: (True, True),
@@ -35,7 +35,7 @@ def test_experiment_substrate_assembles_from_measurements():
     s = ExperimentSubstrate(**_fixed_experiments())
     b = s.produce({"claim": "c"}, backend=None, believed_claim=False)
     assert b.g0_passed is True
-    assert b.mech_full_lo == 0.06 and b.mech_ablated_hi == 0.01 and b.specificity_ok is True
+    assert b.mech_contrast_lo == 0.05 and b.specificity_ok is True
     assert b.novelty_collision is False and b.novelty_k_nearest == ["a", "b"]
     assert b.backbone_cutoff == date(2023, 1, 1) and b.membership_clean is True
     assert b.consequence_confirmed is True and b.incumbent_separated is True
@@ -63,17 +63,16 @@ def test_real_callables_compose_into_a_working_substrate():
         mechanism_fn=lambda backend, schema: real_mechanism(
             score_full=lambda: np.full(50, 0.10), score_ablated=lambda: np.full(50, 0.0),
             specificity_ok=True, alpha=0.05),
-        novelty_fn=lambda schema: real_novelty(schema, audit_fn=lambda s: (False, ["a", "b"]),
-                                               advance_argued=True),
+        novelty_fn=lambda schema: real_novelty(schema, audit_fn=lambda s: (False, ["a", "b"], True)),
         backbone_fn=lambda schema: (date(2023, 1, 1), True),
         consequence_fn=lambda schema: resolve_consequence(
-            "effect", "ssv2", claimed_value=0.80, mie=0.05, held_out_confirmed=True,
+            "effect", "ssv2", measured_value=0.80, mie=0.05, held_out_confirmed=True,
             consequence_catalog=cons, consequence_digest=cd,
             incumbent_catalog=inc, incumbent_digest=idg),
     )
     b = sub.produce({"claim": "c"}, backend=None, believed_claim=True)
     assert b.g0_passed is True
-    assert b.mech_full_lo > 0.05 and b.mech_ablated_hi < 0.05
+    assert b.mech_contrast_lo > 0.05
     assert b.novelty_collision is False and b.novelty_k_nearest == ["a", "b"]
     assert b.consequence_confirmed is True and b.incumbent_separated is True
 

@@ -89,8 +89,16 @@ def build_mechanism_fn(*, score_task, specificity_check, alpha: float, resolve_a
             return resolve_ablation(mechanism)
 
     def mechanism_fn(backend, schema):
-        task = task_from_claim(schema)
-        ablation = resolve_ablation_fn(schema.get("mechanism", ""), task)
+        from .ablation_construction import NoCleanAblation
+        try:
+            task = task_from_claim(schema)
+            ablation = resolve_ablation_fn(schema.get("mechanism", ""), task)
+        except (MechanismError, NoCleanAblation):
+            # SPEC 3c: a hypothesis that names no mechanism, or one whose red/blue construction finds
+            # NO clean ablation, FAILS the mechanism gate CLOSED. It never crashes the campaign -- one
+            # bad idea must not take down a multi-maturation run (the referee reads the failing
+            # contrast and returns FAILED, and the negative bank records it).
+            return float("-inf"), False
         spec = specificity_check(backend, schema, task)
         return real_mechanism(
             score_full=lambda: score_task(backend, task, None),

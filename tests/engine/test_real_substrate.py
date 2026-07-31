@@ -17,7 +17,9 @@ from gatelib import library_digest
 from referee.catalog import CatalogError, catalog_digest
 from referee.lineage import control_catalog_digest
 
-CONS = {"effect": "downstream accuracy rises by >= MIE on the held-out task"}
+CONS = {"effect": "downstream accuracy rises by >= MIE on the held-out task",
+        "capability": "the model succeeds on the held-out task above the incumbent rate",
+        "qualitative_phenomenon": "the observed rate separates above the signed null"}
 INC = {"ssv2_recognition_top1": {"value": 0.773, "source": "MVD ViT-H"},
        "kinetics400_recognition_top1": {"value": 0.921, "source": "InternVideo2-6B"}}
 # k400 has an incumbent but NO signed MIE, so it exercises the per-task MIE fallback in isolation.
@@ -50,11 +52,11 @@ def _assemble(cfg, **over):
     kw = dict(
         config=cfg, consequence_catalog=CONS, incumbent_catalog=INC, mie_catalog=MIE,
         score_task=lambda backend, task, ablation: np.full(50, 0.10 if ablation is None else 0.0),
-        novelty_audit=lambda schema: (False, ["Paper A", "Paper B"]),
+        novelty_audit=lambda schema: (False, ["Paper A", "Paper B"], True),  # party asserts the advance
         g0_pipeline=lambda effect, rng: 0.001,  # always significant -> G0 passes
         specificity_check=lambda backend, schema, task: True,
         membership_check=lambda schema: True,
-        held_out_check=lambda schema: True,
+        held_out_check=lambda schema: (True, 0.80),  # (consequence confirmed, MEASURED held-out value)
         backbone_cutoff=date(2023, 1, 1),
         g0_rng=np.random.default_rng(0),
     )
@@ -65,7 +67,7 @@ def _assemble(cfg, **over):
 def test_assembled_substrate_produces_a_coherent_bundle():
     b = _assemble(_cfg()).produce(_raw(), backend=None, believed_claim=True)
     assert b.g0_passed is True
-    assert b.mech_full_lo > 0.01 and b.mech_ablated_hi < 0.01 and b.specificity_ok is True
+    assert b.mech_contrast_lo > 0.05 and b.specificity_ok is True
     assert b.novelty_collision is False and b.novelty_k_nearest == ["Paper A", "Paper B"]
     assert b.consequence_confirmed is True and b.incumbent_separated is True
     assert b.believed_claim is True
@@ -89,10 +91,56 @@ def test_tampered_mie_digest_raises():
         _assemble(_cfg(mie_distribution_digest="sha256:wrong")).produce(_raw(), backend=None)
 
 
-def test_incumbent_separation_uses_the_rich_record_and_mie():
-    # claimed 0.80 beats the signed incumbent 0.773 by 0.027 >= MIE 0.01 -> separated
-    b = _assemble(_cfg()).produce(_raw(), backend=None, believed_claim=True)
+def test_incumbent_separation_uses_the_measured_value_not_the_claim():
+    # separation uses the MEASURED held-out value, never the agent's claimed_value
+    # measured 0.80 beats the signed incumbent 0.773 by 0.027 >= MIE 0.01 -> separated, despite a LOW claim
+    b = _assemble(_cfg(), held_out_check=lambda s: (True, 0.80)).produce(
+        _raw(claimed_value=0.50), backend=None, believed_claim=True)
     assert b.incumbent_separated is True
-    # a claim only 0.005 above the incumbent does NOT clear the 0.01 MIE
-    b2 = _assemble(_cfg()).produce(_raw(claimed_value=0.778), backend=None, believed_claim=True)
+    # measured only 0.005 above the incumbent does NOT clear the 0.01 MIE, despite a HIGH claim
+    b2 = _assemble(_cfg(), held_out_check=lambda s: (True, 0.778)).produce(
+        _raw(claimed_value=0.99), backend=None, believed_claim=True)
     assert b2.incumbent_separated is False
+
+
+# --- step 52: the no-stub preflight refuses a real run wired with constant stubs ---
+def test_no_stub_preflight_refuses_unmarked_measurements():
+    from engine.real_substrate import StubSubstrateError
+
+    # the default _assemble deps are bare stubs (lambda ...: True); a real run must refuse them.
+    with pytest.raises(StubSubstrateError):
+        _assemble(_cfg(), require_measured=True)
+
+
+def test_no_stub_preflight_passes_when_every_measurement_is_marked():
+    from engine.real_substrate import measured
+
+    sub = _assemble(
+        _cfg(), require_measured=True,
+        score_task=measured(
+            lambda backend, task, ablation: np.full(50, 0.10 if ablation is None else 0.0),
+            name="score_task"),
+        novelty_audit=measured(lambda schema: (False, ["Paper A", "Paper B"], True), name="novelty"),
+        g0_pipeline=measured(lambda effect, rng: 0.001, name="g0"),
+        specificity_check=measured(lambda backend, schema, task: True, name="spec"),
+        membership_check=measured(lambda schema: True, name="member"),
+        held_out_check=measured(lambda schema: (True, 0.80), name="held_out"),
+    )
+    b = sub.produce(_raw(), backend=None, believed_claim=True)
+    assert b.g0_passed is True and b.mech_contrast_lo > 0.05
+
+
+def test_measured_tag_survives_and_still_calls_through():
+    from engine.real_substrate import is_measured, measured
+
+    f = measured(lambda x: x + 1, name="inc")
+    assert is_measured(f) and f(1) == 2
+    assert not is_measured(lambda x: x)
+
+
+def test_capability_claim_resolves_the_incumbent_rate_into_the_bundle():
+    # a capability claim's magnitude gate needs the signed incumbent's held-out rate on the bundle
+    b = _assemble(_cfg()).produce(_raw(claim_type="capability"), backend=None, believed_claim=True)
+    assert b.incumbent_rate == 0.773  # the signed SSv2 incumbent, resolved (never agent-authored)
+    # an effect claim leaves it None: its magnitude gate uses the MIE, not an incumbent rate
+    assert _assemble(_cfg()).produce(_raw(), backend=None, believed_claim=True).incumbent_rate is None
