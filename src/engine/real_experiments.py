@@ -59,12 +59,19 @@ def resolve_consequence(claim_type: str, task: str, measured_value: float, mie: 
     """Produce (consequence_confirmed, incumbent_separated) from the SIGNED catalogs and the
     held-out consequence experiment. Resolving verifies each catalog's digest, so a tampered catalog
     raises (CatalogError) and a claim-type with no pre-registered template cannot get one at handoff.
-    The incumbent separation is computed from the MEASURED held-out value versus the signed incumbent
-    at the MIE, NEVER the agent's claimed value, so a proposal cannot discharge the separation by
-    inflating a number it authored. The agent's claimed_value stays informational (its own belief),
-    not a gate input. Both `measured_value` and `held_out_confirmed` are outcomes of the real held-out
-    consequence experiment (injected: mocked on the Mac, run through the backend on the cluster)."""
-    # Anti-HARKing: the consequence template must already exist in the signed catalog.
+    The incumbent is a CAPABILITY-only concept, so only a capability consequence resolves and separates
+    over one (from the MEASURED held-out value versus the signed incumbent at the MIE, NEVER the agent's
+    claimed value, so a proposal cannot discharge the separation by inflating a number it authored). An
+    effect / phenomenon / law consequence never references an incumbent (its signed template does not),
+    so its separation leg is trivially satisfied and a task with NO signed incumbent is fine, its tier
+    decided by its own downstream consequence. The agent's claimed_value stays informational (its own
+    belief), not a gate input. Both `measured_value` and `held_out_confirmed` are outcomes of the real
+    held-out consequence experiment (injected: mocked on the Mac, run through the backend on the cluster)."""
+    # Anti-HARKing: the consequence template must already exist in the signed catalog (every type).
     resolve_consequence_template(claim_type, consequence_catalog, consequence_digest)
-    incumbent_value = resolve_incumbent(task, incumbent_catalog, incumbent_digest)
-    return bool(held_out_confirmed), incumbent_separated(measured_value, incumbent_value, mie)
+    if claim_type == "capability":
+        incumbent_value = resolve_incumbent(task, incumbent_catalog, incumbent_digest)
+        separated = incumbent_separated(measured_value, incumbent_value, mie)
+    else:
+        separated = True  # non-capability consequences do not separate over an incumbent
+    return bool(held_out_confirmed), separated

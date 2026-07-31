@@ -92,15 +92,25 @@ def test_tampered_mie_digest_raises():
 
 
 def test_incumbent_separation_uses_the_measured_value_not_the_claim():
-    # separation uses the MEASURED held-out value, never the agent's claimed_value
+    # separation uses the MEASURED held-out value, never the agent's claimed_value. It is a CAPABILITY
+    # concept (effect / phenomenon / law never separate over an incumbent), so this uses a capability claim.
     # measured 0.80 beats the signed incumbent 0.773 by 0.027 >= MIE 0.01 -> separated, despite a LOW claim
     b = _assemble(_cfg(), held_out_check=lambda s: (True, 0.80)).produce(
-        _raw(claimed_value=0.50), backend=None, believed_claim=True)
+        _raw(claim_type="capability", claimed_value=0.50), backend=None, believed_claim=True)
     assert b.incumbent_separated is True
     # measured only 0.005 above the incumbent does NOT clear the 0.01 MIE, despite a HIGH claim
     b2 = _assemble(_cfg(), held_out_check=lambda s: (True, 0.778)).produce(
-        _raw(claimed_value=0.99), backend=None, believed_claim=True)
+        _raw(claim_type="capability", claimed_value=0.99), backend=None, believed_claim=True)
     assert b2.incumbent_separated is False
+
+
+def test_effect_claim_needs_no_incumbent_in_the_substrate():
+    # THE FIX end to end: an effect claim on a task with NO signed incumbent produces a bundle without
+    # raising (the consequence experiment never resolves an incumbent), separation trivially satisfied.
+    b = _assemble(_cfg(), held_out_check=lambda s: (True, 0.53)).produce(
+        _raw(claim_type="effect", dataset="intphys2_physics_binary", task="intphys2_physics_binary"),
+        backend=None, believed_claim=True)
+    assert b.incumbent_separated is True
 
 
 # --- step 52: the no-stub preflight refuses a real run wired with constant stubs ---

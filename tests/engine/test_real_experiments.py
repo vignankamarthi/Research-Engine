@@ -73,7 +73,9 @@ def test_real_novelty_flags_a_prior_art_collision():
     collision, _, _ = real_novelty({"claim": "c"}, audit_fn=lambda s: (True, ["Exact Match"], False))
     assert collision is True
 
-CONS = {"effect": "downstream accuracy rises by >= MIE on held-out task T"}
+CONS = {"effect": "downstream accuracy rises by >= MIE on held-out task T",
+        "capability": "solves held-out instances the pre-registered incumbent fails, separated by >= MIE",
+        "qualitative_phenomenon": "the phenomenon persists on a held-out split from a different source"}
 INC = {"ssv2_recognition": 0.70}
 
 
@@ -82,19 +84,37 @@ def _digests():
                incumbent_catalog=INC, incumbent_digest=catalog_digest(INC))
 
 
-def test_resolve_consequence_from_signed_catalogs():
-    # separation uses the MEASURED held-out value, not a claim the agent authored
+def test_capability_consequence_separates_over_the_signed_incumbent():
+    # separation uses the MEASURED held-out value, not a claim the agent authored. Only CAPABILITY.
     confirmed, separated = resolve_consequence(
-        "effect", "ssv2_recognition", measured_value=0.80, mie=0.05,
+        "capability", "ssv2_recognition", measured_value=0.80, mie=0.05,
         held_out_confirmed=True, **_digests())
+    assert confirmed is True and separated is True   # 0.80 - 0.70 = 0.10 >= 0.05
+
+
+def test_capability_not_separated_when_measured_margin_below_mie():
+    confirmed, separated = resolve_consequence(
+        "capability", "ssv2_recognition", measured_value=0.72, mie=0.05,
+        held_out_confirmed=True, **_digests())
+    assert separated is False  # measured 0.72 - incumbent 0.70 = 0.02 < 0.05
+
+
+def test_effect_claim_needs_no_incumbent():
+    # THE FIX: the incumbent is a capability-only concept. A non-capability consequence never resolves
+    # an incumbent, so a task with NO signed incumbent does not raise and its separation leg is
+    # trivially satisfied (an effect's tier is decided by its own downstream consequence, not a SOTA).
+    confirmed, separated = resolve_consequence(
+        "effect", "intphys2_physics_binary", measured_value=0.53, mie=0.03,
+        held_out_confirmed=True, **_digests())          # intphys2 is NOT in INC
     assert confirmed is True and separated is True
 
 
-def test_incumbent_not_separated_when_measured_margin_below_mie():
-    confirmed, separated = resolve_consequence(
-        "effect", "ssv2_recognition", measured_value=0.72, mie=0.05,
+def test_phenomenon_separation_is_trivially_true_regardless_of_value():
+    # even a value below the incumbent does not fail a phenomenon: it never separates over one
+    _, separated = resolve_consequence(
+        "qualitative_phenomenon", "ssv2_recognition", measured_value=0.10, mie=0.05,
         held_out_confirmed=True, **_digests())
-    assert separated is False  # measured 0.72 - incumbent 0.70 = 0.02 < 0.05
+    assert separated is True
 
 
 def test_held_out_failure_yields_unconfirmed_consequence():
