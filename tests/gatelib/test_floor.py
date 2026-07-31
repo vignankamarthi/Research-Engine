@@ -54,3 +54,11 @@ def test_empty_untrained_runs_rejected():
 def test_shape_mismatch_rejected():
     with pytest.raises(ValueError):
         floor_separation(np.zeros(10), [np.zeros(9)], mie=0.05)
+
+
+def test_identically_zero_untrained_arm_halts():
+    # a np.zeros stub (no random-init model actually scored) must HALT, not pass trivially:
+    # residual would equal the whole trained score and the geometry-artifact catcher would be a no-op.
+    from gatelib.floor import DegenerateFloorError
+    with pytest.raises(DegenerateFloorError):
+        floor_separation(np.full(20, 0.35), [np.zeros(20), np.zeros(20)], mie=0.03)

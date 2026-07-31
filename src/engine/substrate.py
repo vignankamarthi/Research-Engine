@@ -33,31 +33,39 @@ class ExperimentSubstrate:
     measurement, never from the agent. A failed experiment produces the failing value, so the
     referee reads it as such rather than the substrate papering over it."""
 
-    def __init__(self, g0_fn, mechanism_fn, novelty_fn, backbone_fn, consequence_fn, mie_fn=None):
+    def __init__(self, g0_fn, mechanism_fn, novelty_fn, backbone_fn, consequence_fn, mie_fn=None,
+                 magnitude_fn=None):
         self._g0_fn = g0_fn                  # (backend, schema) -> bool
-        self._mechanism_fn = mechanism_fn    # (backend, schema) -> (full_lo, ablated_hi, specificity_ok)
+        self._mechanism_fn = mechanism_fn    # (backend, schema) -> (contrast_lo, specificity_ok)
         self._novelty_fn = novelty_fn        # (schema) -> (collision, k_nearest, advance)
         self._backbone_fn = backbone_fn      # (schema) -> (cutoff_date, membership_clean)
         self._consequence_fn = consequence_fn  # (schema) -> (consequence_confirmed, incumbent_separated)
         self._mie_fn = mie_fn                # (schema) -> per-task MIE float, or None to use the floor
+        self._magnitude_fn = magnitude_fn    # (schema) -> the per-type magnitude thresholds dict
 
     def produce(self, schema, backend, believed_claim: bool = False) -> Bundle:
         g0 = self._g0_fn(backend, schema)
-        mech_lo, mech_hi, spec = self._mechanism_fn(backend, schema)
+        mech_contrast_lo, spec = self._mechanism_fn(backend, schema)
         collision, k_nearest, advance = self._novelty_fn(schema)
         cutoff, clean = self._backbone_fn(schema)
         consequence_ok, incumbent_sep = self._consequence_fn(schema)
         mie = self._mie_fn(schema) if self._mie_fn is not None else None
+        mag = self._magnitude_fn(schema) if self._magnitude_fn is not None else {}
         return Bundle(
             mie=mie,
             g0_passed=g0,
             backbone_cutoff=cutoff,
             membership_clean=clean,
-            mech_full_lo=mech_lo,
-            mech_ablated_hi=mech_hi,
+            mech_contrast_lo=mech_contrast_lo,
             specificity_ok=spec,
             consequence_confirmed=consequence_ok,
             incumbent_separated=incumbent_sep,
+            incumbent_rate=mag.get("incumbent_rate"),
+            baseline_rate=mag.get("baseline_rate"),
+            law_predicted=mag.get("law_predicted"),
+            law_observed=mag.get("law_observed"),
+            law_tol=mag.get("law_tol"),
+            law_within_envelope=bool(mag.get("law_within_envelope", False)),
             novelty_collision=collision,
             novelty_k_nearest=k_nearest,
             novelty_advance=advance,

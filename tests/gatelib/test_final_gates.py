@@ -4,21 +4,23 @@ consequence confirmed AND incumbent separated at MIE)."""
 from gatelib import consequence_check, mechanism_check, novelty_check
 
 
-# --- mechanism: the full effect is present and the ablation removes it ---
+# --- mechanism: the paired (full minus ablated) CONTRAST exceeds the MIE, plus specificity ---
 def test_mechanism_supported():
-    assert mechanism_check(full_lo=0.06, ablated_hi=0.02, mie=0.03, specificity_ok=True)
+    # ablating the mechanism drops the metric by more than the MIE, and specificity holds
+    assert mechanism_check(contrast_lo=0.06, mie=0.03, specificity_ok=True)
 
 
-def test_mechanism_fails_if_ablation_does_not_remove_the_effect():
-    assert not mechanism_check(full_lo=0.06, ablated_hi=0.05, mie=0.03, specificity_ok=True)
+def test_mechanism_fails_when_the_ablation_drop_is_below_the_mie():
+    assert not mechanism_check(contrast_lo=0.02, mie=0.03, specificity_ok=True)
 
 
-def test_mechanism_fails_if_full_effect_absent():
-    assert not mechanism_check(full_lo=0.01, ablated_hi=0.005, mie=0.03, specificity_ok=True)
+def test_mechanism_fails_on_a_non_positive_contrast():
+    # ablation did not reduce the metric (an MCQ chance floor no longer makes this unsatisfiable)
+    assert not mechanism_check(contrast_lo=0.0, mie=0.03, specificity_ok=True)
 
 
 def test_mechanism_fails_without_specificity():
-    assert not mechanism_check(full_lo=0.06, ablated_hi=0.02, mie=0.03, specificity_ok=False)
+    assert not mechanism_check(contrast_lo=0.06, mie=0.03, specificity_ok=False)
 
 
 # --- novelty: fail-closed on a collision, positive-delta over named priors ---

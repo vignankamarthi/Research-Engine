@@ -19,11 +19,19 @@ class Bundle:
     g0_passed: bool = False
     backbone_cutoff: date = date.max  # fail-closed: any real box origin then reads as contaminated
     membership_clean: Optional[bool] = None
-    mech_full_lo: float = 0.0
-    mech_ablated_hi: float = 1.0
+    mech_contrast_lo: float = 0.0  # fail-closed: a zero paired contrast never exceeds a positive MIE
     specificity_ok: bool = False
     consequence_confirmed: bool = False
     incumbent_separated: bool = False
+    # Per-type magnitude thresholds the SUBSTRATE measures from the signed catalogs. Fail-closed
+    # None: a capability / phenomenon / law_shape claim whose threshold was not measured reads
+    # INELIGIBLE, never silently passed on an absent bar.
+    incumbent_rate: float | None = None    # capability: the incumbent's held-out success rate
+    baseline_rate: float | None = None     # qualitative_phenomenon: the signed null / baseline rate
+    law_predicted: tuple | None = None     # law_shape: predicted values across held-out scales
+    law_observed: tuple | None = None      # law_shape: observed values across the same scales
+    law_tol: float | None = None           # law_shape: the pre-registered tolerance
+    law_within_envelope: bool = False      # law_shape: the scale sweep fits the single-GPU 24h envelope
     novelty_collision: bool = False
     novelty_k_nearest: list = field(default_factory=list)
     novelty_advance: bool = False
@@ -39,8 +47,9 @@ class Bundle:
         explicitly; a bare Bundle() fails closed."""
         satisfied = dict(
             g0_passed=True, backbone_cutoff=date(2023, 1, 1), membership_clean=True,
-            mech_full_lo=0.06, mech_ablated_hi=0.01, specificity_ok=True,
+            mech_contrast_lo=0.05, specificity_ok=True,
             consequence_confirmed=True, incumbent_separated=True,
+            incumbent_rate=0.70, baseline_rate=0.25, law_within_envelope=True,
             novelty_collision=False, novelty_k_nearest=["a", "b"], novelty_advance=True,
             ood_holds=False, believed_claim=True,
         )
