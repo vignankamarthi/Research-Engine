@@ -110,3 +110,23 @@ def test_atomic_claim_under_concurrency(tmp_path):
     for t in threads:
         t.join()
     assert winners == ["only"]  # exactly one thread claimed the single box
+
+
+def test_replication_and_rescore_draw_fresh_boxes_by_purpose(tmp_path):
+    # the one-grant is per (lineage, PURPOSE): a primary spends one box, a replication draws a FRESH
+    # one (so a finding can become submit-bound), a second primary is barred, and a rescore is granted
+    # only against a prior burned box.
+    ls = LeaseStore(str(tmp_path / "l.db"))
+    ls.add_boxes(["b0", "b1", "b2"])
+    p = ls.claim("hyp", "lin", purpose="primary")
+    ls.mark_label_read(p.box_id, p.generation)
+    ls.stage(p.box_id, p.generation, verdict="CONFIRMED", score=b"")
+    ls.commit(p.box_id, p.generation)
+    assert ls.bank_verdict("lin", "primary")[1] == "CONFIRMED"
+    assert ls.claim("hyp", "lin", purpose="primary") is None          # second primary barred
+    rep = ls.claim("hyp", "lin", purpose="replication")               # replication draws a fresh box
+    assert rep is not None and rep.box_id != p.box_id
+    # a rescore with NO burned record for the lineage is refused (one guarded re-score, exactly)
+    ls2 = LeaseStore(str(tmp_path / "l2.db"))
+    ls2.add_boxes(["c0"])
+    assert ls2.claim("hyp", "lin", purpose="rescore") is None

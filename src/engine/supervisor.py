@@ -20,6 +20,13 @@ HEALTH_HALT = "HEALTH_HALT"
 BACKSTOP = "BACKSTOP"
 
 
+class BoxExhausted(Exception):
+    """The holdout box pool is genuinely spent (no live box left to claim). This is a PLANNED
+    terminal, not a bug: the step_fn raises it so the supervisor routes to BASE_CASE, distinct
+    from the bug-shaped stall BACKSTOP that pages via the halt flag. Exhaustion is a legitimate
+    end to a campaign that spent its whole signed pool, so it must not look like a fault."""
+
+
 # The scientific budget for a first campaign. Compute is not the limit here; this keeps the
 # selection family's expected-false count under one (15 x 0.05 = 0.75) and human triage manageable.
 DEFAULT_MAX_MATURATIONS = 15
@@ -37,6 +44,17 @@ class Budget:
         """A sane starting budget. GPU-hours is a loose runaway guard (~3x the expected cost of the
         maturations), boxes covers the maturations plus replication/backbone reserves, and
         max_maturations is the real scientific ceiling."""
+        return cls(max_gpu_hours=max_gpu_hours, max_boxes=max_boxes, max_maturations=max_maturations)
+
+    @classmethod
+    def from_closure(cls, *, live_boxes: int, reserves, max_gpu_hours: float,
+                     max_maturations: float) -> "Budget":
+        """Derive `max_boxes` from the live-box pool minus the signed reserves, REFUSING (raising
+        `ClosureError`) if the reserves do not close against the pool. This is the campaign-start
+        and ceiling-raise enforcement point: the box base case then fires while the held-back
+        replication + rescore + backbone reserves still physically exist. See `engine.closure`."""
+        from .closure import validate_closure
+        max_boxes = validate_closure(live_boxes, reserves)
         return cls(max_gpu_hours=max_gpu_hours, max_boxes=max_boxes, max_maturations=max_maturations)
 
 
@@ -100,7 +118,12 @@ def run_supervisor(step_fn: "Callable[[SupervisorState], SupervisorState]", budg
         if not _health_ok(health_gate, halt_flag, "heartbeat"):
             return HEALTH_HALT
 
-        new_state = step_fn(state)
+        try:
+            new_state = step_fn(state)
+        except BoxExhausted:
+            # the pool is spent: a planned end, not a bug. Terminate BASE_CASE without paging the
+            # halt flag (the stall backstop below is the bug-shaped path that does page).
+            return BASE_CASE
         if _made_progress(new_state, state):
             stalls = 0
         else:

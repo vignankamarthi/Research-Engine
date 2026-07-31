@@ -31,26 +31,42 @@ class LeaseStore:
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS boxes("
             " box_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'live',"
-            " holder TEXT, lineage TEXT, generation INTEGER NOT NULL DEFAULT 0,"
+            " holder TEXT, lineage TEXT, purpose TEXT NOT NULL DEFAULT 'primary',"
+            " generation INTEGER NOT NULL DEFAULT 0,"
             " label_read INTEGER NOT NULL DEFAULT 0,"
             " staged_verdict TEXT, staged_score BLOB)"
         )
+        # The one-grant is keyed on (lineage, PURPOSE), so a lineage's mandatory second-box REPLICATION
+        # and its one guarded crash RE-SCORE can each draw a FRESH box, while a second PRIMARY (or a
+        # second replication / rescore of the same purpose) is still barred. Without the purpose the
+        # lineage was a PRIMARY KEY and no finding could ever replicate, so none could become submit-bound.
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS bank("
-            " lineage TEXT PRIMARY KEY, box_id TEXT, verdict TEXT, kind TEXT)"
+            " lineage TEXT, purpose TEXT NOT NULL DEFAULT 'primary', box_id TEXT, verdict TEXT,"
+            " kind TEXT, PRIMARY KEY(lineage, purpose))"
         )
 
     def add_boxes(self, box_ids) -> None:
         for b in box_ids:
             self.conn.execute("INSERT OR IGNORE INTO boxes(box_id) VALUES(?)", (b,))
 
-    def claim(self, hypothesis: str, lineage: str):
+    def claim(self, hypothesis: str, lineage: str, purpose: str = "primary"):
+        """Claim a FRESH live box for (lineage, purpose). The one-grant is per PURPOSE, so a
+        `replication` or a `rescore` draws a fresh box even after the `primary` spent one, while a
+        second grant of the SAME purpose is barred. A `rescore` is allowed ONLY when a prior burned
+        record exists for the lineage (a supervisor-attested crash), so the one guarded re-score
+        stays exactly one."""
         c = self.conn
         c.execute("BEGIN IMMEDIATE")
         try:
-            if c.execute("SELECT 1 FROM bank WHERE lineage=?", (lineage,)).fetchone():
+            if c.execute("SELECT 1 FROM bank WHERE lineage=? AND purpose=?",
+                         (lineage, purpose)).fetchone():
                 c.execute("COMMIT")
-                return None  # one-grant: this lineage already spent/burned a box
+                return None  # one-grant: this (lineage, purpose) already spent/burned a box
+            if purpose == "rescore" and not c.execute(
+                    "SELECT 1 FROM bank WHERE lineage=? AND kind='burned'", (lineage,)).fetchone():
+                c.execute("COMMIT")
+                return None  # a re-score is only granted against a prior burned (crashed) box
             row = c.execute(
                 "SELECT box_id FROM boxes WHERE status='live' ORDER BY box_id LIMIT 1"
             ).fetchone()
@@ -59,9 +75,9 @@ class LeaseStore:
                 return None
             box_id = row[0]
             cur = c.execute(
-                "UPDATE boxes SET status='reserved', holder=?, lineage=?,"
+                "UPDATE boxes SET status='reserved', holder=?, lineage=?, purpose=?,"
                 " generation=generation+1 WHERE box_id=? AND status='live'",
-                (hypothesis, lineage, box_id),
+                (hypothesis, lineage, purpose, box_id),
             )
             if cur.rowcount != 1:  # lost the race inside the transaction (should not happen)
                 c.execute("ROLLBACK")
@@ -95,18 +111,19 @@ class LeaseStore:
         c.execute("BEGIN IMMEDIATE")
         try:
             row = c.execute(
-                "SELECT lineage, staged_verdict FROM boxes WHERE box_id=? AND"
+                "SELECT lineage, purpose, staged_verdict FROM boxes WHERE box_id=? AND"
                 " generation=? AND status='reserved'",
                 (box_id, generation),
             ).fetchone()
-            if row is None or row[1] is None:
+            if row is None or row[2] is None:
                 c.execute("ROLLBACK")
                 raise FenceError(f"cannot commit {box_id}: not staged or generation stale")
-            lineage, verdict = row
+            lineage, purpose, verdict = row
             c.execute("UPDATE boxes SET status='spent' WHERE box_id=? AND generation=?",
                       (box_id, generation))
-            c.execute("INSERT OR REPLACE INTO bank(lineage,box_id,verdict,kind) VALUES(?,?,?, 'spent')",
-                      (lineage, box_id, verdict))
+            c.execute(
+                "INSERT OR REPLACE INTO bank(lineage,purpose,box_id,verdict,kind) VALUES(?,?,?,?, 'spent')",
+                (lineage, purpose, box_id, verdict))
             c.execute("COMMIT")
         except Exception:
             c.execute("ROLLBACK")
@@ -119,10 +136,10 @@ class LeaseStore:
         clobbered, and a stale lineage is never written into the bank. Returns {box_id: action}."""
         actions: dict[str, str] = {}
         rows = self.conn.execute(
-            "SELECT box_id, generation, lineage, label_read, staged_verdict"
+            "SELECT box_id, generation, lineage, purpose, label_read, staged_verdict"
             " FROM boxes WHERE status='reserved'"
         ).fetchall()
-        for box_id, generation, lineage, label_read, staged_verdict in rows:
+        for box_id, generation, lineage, purpose, label_read, staged_verdict in rows:
             c = self.conn
             c.execute("BEGIN IMMEDIATE")
             try:
@@ -134,8 +151,9 @@ class LeaseStore:
                     ).rowcount == 1
                     if moved:
                         c.execute(
-                            "INSERT OR REPLACE INTO bank(lineage,box_id,verdict,kind) VALUES(?,?,?, 'spent')",
-                            (lineage, box_id, staged_verdict),
+                            "INSERT OR REPLACE INTO bank(lineage,purpose,box_id,verdict,kind)"
+                            " VALUES(?,?,?,?, 'spent')",
+                            (lineage, purpose, box_id, staged_verdict),
                         )
                     actions[box_id] = "recommitted" if moved else "skipped_moved"
                 elif label_read:
@@ -146,8 +164,9 @@ class LeaseStore:
                     ).rowcount == 1
                     if moved:
                         c.execute(
-                            "INSERT OR REPLACE INTO bank(lineage,box_id,verdict,kind) VALUES(?,?,NULL,'burned')",
-                            (lineage, box_id),
+                            "INSERT OR REPLACE INTO bank(lineage,purpose,box_id,verdict,kind)"
+                            " VALUES(?,?,?,NULL,'burned')",
+                            (lineage, purpose, box_id),
                         )
                     actions[box_id] = "burned" if moved else "skipped_moved"
                 else:
@@ -168,8 +187,24 @@ class LeaseStore:
     def box_status(self, box_id: str) -> str:
         return self.conn.execute("SELECT status FROM boxes WHERE box_id=?", (box_id,)).fetchone()[0]
 
-    def bank_verdict(self, lineage: str):
+    def live_count(self) -> int:
+        """Boxes still 'live' (unclaimed). The closure validator reads this as ground truth for the
+        pool size at campaign start AND on a ceiling raise, rather than trusting a passed-in count."""
+        return int(self.conn.execute(
+            "SELECT COUNT(*) FROM boxes WHERE status='live'").fetchone()[0])
+
+    def counts(self):
+        """(boxes_spent, maturations) reconstructed from the durable bank, for a crash-resume: every
+        bank row spent (or burned) a box, and a PRIMARY row is a matured hypothesis. The supervisor
+        rebuilds its SupervisorState from this so a restart neither re-scores a spent box (the
+        (lineage, purpose) one-grant bars it) nor exceeds the maturation budget across restarts."""
+        boxes = self.conn.execute("SELECT COUNT(*) FROM bank").fetchone()[0]
+        matured = self.conn.execute(
+            "SELECT COUNT(*) FROM bank WHERE purpose='primary'").fetchone()[0]
+        return int(boxes), int(matured)
+
+    def bank_verdict(self, lineage: str, purpose: str = "primary"):
         row = self.conn.execute(
-            "SELECT box_id, verdict, kind FROM bank WHERE lineage=?", (lineage,)
+            "SELECT box_id, verdict, kind FROM bank WHERE lineage=? AND purpose=?", (lineage, purpose)
         ).fetchone()
         return None if row is None else (row[0], row[1], row[2])
