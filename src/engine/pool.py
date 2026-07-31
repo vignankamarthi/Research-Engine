@@ -105,17 +105,26 @@ def group_and_report(findings, alpha: float = 0.05) -> FamilyReport:
     return FamilyReport(families, per_lineage, per_family, campaign)
 
 
+_SCORED_STATUSES = ("CONFIRMED", "STRONG", "CONFIRMED_EFFECT", "CONFIRMED_NEGATIVE",
+                    "FAILED", "INCONCLUSIVE")
+
+
 def close_campaign(results, alpha: float = 0.05) -> PoolReport:
-    scored = [r for r in results if r.verdict is not None and r.verdict.pvalue is not None]
+    # EVERY box-touching result is a look in the selection family (matured-and-scored), whether or not
+    # it carries a scalar p-value. A law_shape fit has no one-sided p-value, so it is COUNTED in N
+    # (keeping the others' N-adjusted threshold honest for the true number of looks) but is not itself
+    # submitted through BH -- a proper permutation statistic for it is deferred.
+    scored = [r for r in results if r.verdict is not None and r.verdict.status in _SCORED_STATUSES]
     if not scored:
         return PoolReport([], 0, 0.0, "Campaign closed: no matured-and-scored hypotheses.")
 
-    bh = benjamini_hochberg([r.verdict.pvalue for r in scored], alpha)
+    n = len(scored)
+    bh_scored = [r for r in scored if r.verdict.pvalue is not None]
+    bh = benjamini_hochberg([r.verdict.pvalue for r in bh_scored], alpha, n_tests=n)
     submitted = [
-        r for r, rejected in zip(scored, bh.rejected)
+        r for r, rejected in zip(bh_scored, bh.rejected)
         if rejected and r.verdict.status in ("CONFIRMED", "STRONG")
     ]
-    n = len(scored)
     expected_false = n * alpha
 
     lines = [
