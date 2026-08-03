@@ -58,5 +58,23 @@
     "mie_percentile": 75,
     "mie_value": 0.04,
     "status": "OPTIONAL secondary (Vignan verifies + signs). VideoHallu (arXiv:2505.01481) is AI-generated 2025-video-gen counterintuitive QA, 987 clips / 3,233 QA, Apache-2.0, membership-clean. Models cluster 49-54 pct (no dominant incumbent), strongest accepted delta Video-R1 RL +4.46. 0.04 (+4 pt) top-quartile driven by the Video-R1 gain. CAVEAT: scoring is LLM-as-judge (GPT-4o-mini), NOT judge-free, so it adds a judge dependency + a reproducibility knob; IntPhys 2 is the cleaner primary. Signed MIE-ONLY (effect/phenomenon). Include only if you want a second dataset this run."
+  },
+  "generated_physics_paired": {
+    "_task": "The engine's OWN generated paired possible/impossible physics clips over 8 violation types (solidity, permanence, immutability, continuity, gravity, momentum, collision, inertia). No external leaderboard exists for it, so per step 77 the MIE is anchored on the adjacent published genre (IntPhys 2, the same binary violation-of-expectation task) plus the human-model gap.",
+    "accepted_effect_sizes": [0.015, 0.019, 0.019, 0.052],
+    "effect_size_sources": [
+      {"delta": 0.015, "paper": "VideoMAEv2-g over Qwen2.5-VL on IntPhys 2 (52.27 -> 53.75)", "doi": "10.48550/arXiv.2506.09849"},
+      {"delta": 0.019, "paper": "Gemini 2.5 Flash over VideoMAEv2-g on IntPhys 2 (53.75 -> 55.63)", "doi": "10.48550/arXiv.2506.09849"},
+      {"delta": 0.019, "paper": "V-JEPA 2 over Gemini 2.5 Flash on IntPhys 2 (55.63 -> 57.5)", "doi": "10.48550/arXiv.2506.09849"},
+      {"delta": 0.052, "paper": "V-JEPA 2 best-overall over the Qwen2.5-VL baseline on IntPhys 2 (52.27 -> 57.5)", "doi": "10.48550/arXiv.2506.09849"}
+    ],
+    "human_model_gap": {
+      "human_accuracy": "About 1.00 by construction. The per-condition human-perceptibility gate admits a violation type only if humans score about 100 percent on it, consistent with IntPhys 2 human 0.9644.",
+      "model_baseline": "Qwen2.5-VL-7B near chance. The on-cluster continuation-scorer smoke measured a raw paired separation of +0.073 (mean P(possible) 0.847 on possible vs 0.773 on impossible clips), so the achievable headroom is large but the MIE is the field's interesting-bar, not the whole gap.",
+      "motivation_doi": "10.48550/arXiv.2502.11831"
+    },
+    "mie_percentile": 75,
+    "mie_value": 0.03,
+    "status": "STARTER for the generated-data EFFECT run (Vignan verifies + signs). Same binary possible/impossible VoE genre as IntPhys 2, so the MIE reuses the IntPhys 2 accepted-method-delta distribution [0.015, 0.019, 0.019, 0.052], top-quartile about 0.03 (+3 pt). This is a mechanism EFFECT bar, the trained-minus-untrained contrast on the paired clips, not a capability bar. There is deliberately NO incumbent entry, so the classifier routes performance claims to EFFECT. The Garrido/LeCun result (DOI 10.48550/arXiv.2502.11831) motivates the JEPA-as-mechanism vein and the wide human-model gap, cited as motivation and not as a delta source (no fabricated number). LENIENCY KNOB for Vignan, 0.03 matches the IntPhys 2 sign. Because the generated task is cleaner (pixel-identical pairs, no render-style confound) a smaller MIE could be justified, but keep it at or above the signed mie_floor 0.01. Verify the IntPhys 2 rows in arXiv:2506.09849 before signing, they are shared with the intphys2_physics_binary entry."
   }
 }
