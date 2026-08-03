@@ -6,7 +6,12 @@ suite."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+
+# A "star Insight" block that an ambient explanatory/learning output style can prepend to a reply
+# (bounded by box-drawing rules). The runner forces the default style; this is the parser backstop.
+_INSIGHT_BLOCK = re.compile(r"★\s*Insight\s*─{3,}.*?─{3,}\s*", re.S)
 
 
 class ClaudeAgentError(Exception):
@@ -15,8 +20,16 @@ class ClaudeAgentError(Exception):
 
 def default_cli_runner(prompt: str, model: str | None = None, timeout_s: float = 240.0,
                        claude_bin: str = "claude") -> str:
-    """Shell out to `claude -p` headless (Max subscription, no API key)."""
-    cmd = [claude_bin, "-p", prompt, "--output-format", "text"]
+    """Shell out to `claude -p` headless (Max subscription, no API key).
+
+    FORCES the plain (`default`) output style. The engine's agents have a strict JSON contract, but a
+    user whose ambient `outputStyle` is `explanatory`/`learning` leaks "star Insight" commentary into
+    the subprocess reply on complex prompts, which breaks `extract_json` non-deterministically (it hit
+    the ablation builder mid-crank). Pinning the style here makes every agent call deterministic
+    regardless of the launching session's style. `--settings` merges over the loaded settings, so only
+    the output style is overridden; permissions and everything else are untouched."""
+    cmd = [claude_bin, "-p", prompt, "--output-format", "text",
+           "--settings", '{"outputStyle": "default"}']
     if model:
         cmd += ["--model", model]
     try:
@@ -31,7 +44,7 @@ def default_cli_runner(prompt: str, model: str | None = None, timeout_s: float =
 def extract_json(text: str):
     """Parse a JSON object/array out of an LLM reply, tolerating ``` fences and surrounding
     prose. Raises ClaudeAgentError if nothing parses."""
-    text = text.strip()
+    text = _INSIGHT_BLOCK.sub("", text).strip()
     if text.startswith("```"):
         lines = text.split("\n")
         lines = lines[1:] if lines[0].startswith("```") else lines
