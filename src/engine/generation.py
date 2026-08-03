@@ -41,6 +41,26 @@ _FAMILY_KEYWORDS = (
 
 _REQUIRED_KEYS = ("claim", "claim_type", "backbone", "dataset", "scale", "measure")
 
+# The JEPA idea-DAG (PLAN 78, and the Core-purpose "JEPA reserve"): V-JEPA / I-JEPA, joint-embedding
+# predictive architectures, world models, masked-latent / predictive-coding prediction. Matched in the
+# BROADEST interpretation (anything under the DAG qualifies) against the candidate's mechanism / measure
+# / claim text, so a JEPA idea is recognized however it is phrased. This tag is ORTHOGONAL to
+# `mechanism_family` (a JEPA idea can also be temporal, spatial, etc.), so it rides as its own boolean.
+_JEPA_KEYWORDS = (
+    "jepa", "v-jepa", "vjepa", "i-jepa", "ijepa",
+    "joint-embedding predictive", "joint embedding predictive", "joint-embedding-predictive",
+    "world model", "world-model", "world models",
+    "masked-latent", "masked latent",
+    "latent prediction", "latent-prediction", "latent predictive", "predict in latent",
+    "predictive coding", "predictive-coding", "predictive architecture",
+)
+
+# The standing campaign reserve: at least JEPA_FLOOR and at most JEPA_CAP of the ~50 matured ideas sit
+# in the JEPA DAG. A FLOOR (a guaranteed slot, like the high-patience binding) and a CAP (past which
+# further JEPA candidates are deprioritized so the other 40+ ideas stay diverse), never a hijack.
+JEPA_FLOOR = 5
+JEPA_CAP = 10
+
 
 def choose_mode(bandit_pick, depth_count, breadth_count, policy):
     """The depth/breadth chooser, correctly named (the steering helper is still called `choose_vein`,
@@ -58,9 +78,19 @@ def mechanism_family(candidate: dict) -> str:
     return "other"
 
 
+def is_jepa_candidate(candidate: dict) -> bool:
+    """True iff the candidate falls in the JEPA idea-DAG, decided from its mechanism / measure / claim
+    text against the JEPA keyword set (broadest interpretation). Orthogonal to `mechanism_family`, so
+    the JEPA reserve can watch a standing quota that cuts across the mechanism axis."""
+    text = " ".join(str(candidate.get(k, "")) for k in ("mechanism", "measure", "claim")).lower()
+    return any(kw in text for kw in _JEPA_KEYWORDS)
+
+
 def stamp_candidate(candidate: dict, vein: str) -> dict:
-    """Stamp a candidate with its vein and derived mechanism-family (the two diversity keys)."""
-    return {**candidate, "vein": vein, "mechanism_family": mechanism_family(candidate)}
+    """Stamp a candidate with its vein, derived mechanism-family, and JEPA-family tag (the diversity
+    keys). `jepa` is the standing-reserve axis (PLAN 78)."""
+    return {**candidate, "vein": vein, "mechanism_family": mechanism_family(candidate),
+            "jepa": is_jepa_candidate(candidate)}
 
 
 def enforce_distinct(candidates):
@@ -197,6 +227,43 @@ def bind_high_patience_slot(ranked, *, generative_veins=GENERATIVE_VEINS):
     return None
 
 
+@dataclass(frozen=True)
+class JepaReserve:
+    """The standing campaign-level JEPA quota (PLAN 78). It enforces FLOOR <= JEPA-matured <= CAP over
+    the whole run by reordering a wave's ranked candidates against the RUNNING campaign JEPA count:
+
+      - BELOW the floor: a JEPA candidate (if the wave produced one) is lifted to the top, so it wins
+        the slot `run_campaign` matures. This is the guaranteed-slot mechanism, the exact analog of the
+        high-patience binding. It cannot manufacture a JEPA idea the scout never proposed, but it
+        guarantees every JEPA candidate that IS proposed matures ahead of the rest until the floor is met.
+      - AT/ABOVE the cap: JEPA candidates are excluded so the other 40+ ideas stay diverse. They are
+        kept only as a last resort (an all-JEPA wave), so a wave is never emptied.
+      - BETWEEN floor and cap: the natural quality+importance ranking is untouched.
+
+    The reserve holds NO state itself; the running count is supplied per call, so the orchestrator (which
+    owns the campaign) and the wave agree on one number and the reserve stays a pure function."""
+    floor: int = JEPA_FLOOR
+    cap: int = JEPA_CAP
+
+    def below_floor(self, jepa_matured: int) -> bool:
+        return jepa_matured < self.floor
+
+    def at_cap(self, jepa_matured: int) -> bool:
+        return jepa_matured >= self.cap
+
+    def apply(self, ranked: list, *, jepa_matured: int) -> list:
+        """Reorder a ranked wave to honor the reserve given the running campaign JEPA count. Never drops
+        a candidate outright (a silent kill is forbidden); it only reorders, and JEPA is excluded under
+        the cap ONLY while a non-JEPA candidate remains to take its place."""
+        jepa = [r for r in ranked if r.candidate.get("jepa")]
+        rest = [r for r in ranked if not r.candidate.get("jepa")]
+        if self.at_cap(jepa_matured):
+            return rest + jepa if rest else jepa      # cap: JEPA to the back (kept only if nothing else)
+        if self.below_floor(jepa_matured) and jepa:
+            return jepa + rest                        # floor: guarantee a JEPA slot (like high-patience)
+        return ranked
+
+
 def human_seed(claim: str, **fields) -> dict:
     """The human-seed entry point: a candidate the human injects directly, stamped so its origin is
     auditable. It flows through the same envelope, grounding, and rank stages as a scout candidate."""
@@ -258,22 +325,33 @@ class WaveAgent:
     `WaveResult` is exposed so the orchestrator can read the malformed/dead-end drops, the high-patience
     slot, and the per-wave grounding rate for the concentration check."""
 
-    def __init__(self, scout, *, resolver, wired_claim_types, quality_of=None, importance_of=None):
+    def __init__(self, scout, *, resolver, wired_claim_types, quality_of=None, importance_of=None,
+                 reserve: "JepaReserve | None" = None):
         self._scout = scout
         self._resolver = resolver
         self._wired = tuple(wired_claim_types)
         self._quality_of = quality_of
         self._importance_of = importance_of
+        # The JEPA standing reserve (PLAN 78). When present, the wave's ranked list is reordered against
+        # the RUNNING campaign JEPA count, which the orchestrator injects as context['jepa_matured'], so
+        # the candidate `run_campaign` matures (index 0) honors the floor/cap. None keeps plain ranking.
+        self._reserve = reserve
         self.last_wave: WaveResult | None = None
+        self.last_selected: dict | None = None  # the candidate run_campaign will mature (index 0)
 
     def propose(self, context):
+        context = context or {}
         wave = generate_wave(
-            scout=self._scout, context=context or {}, wired_claim_types=self._wired,
-            resolver=self._resolver, negative_bank=(context or {}).get("negative_bank", ()),
+            scout=self._scout, context=context, wired_claim_types=self._wired,
+            resolver=self._resolver, negative_bank=context.get("negative_bank", ()),
             quality_of=self._quality_of, importance_of=self._importance_of)
         self.last_wave = wave
-        candidates = [r.candidate for r in wave.ranked]
-        return candidates or [{}]  # the [{}] fallback matches the scout contract on an empty wave
+        ranked = wave.ranked
+        if self._reserve is not None:
+            ranked = self._reserve.apply(ranked, jepa_matured=int(context.get("jepa_matured", 0)))
+        candidates = [r.candidate for r in ranked] or [{}]  # [{}] matches the scout contract on empty
+        self.last_selected = candidates[0]
+        return candidates
 
     def mature(self, schema_raw):
         return self._scout.mature(schema_raw)

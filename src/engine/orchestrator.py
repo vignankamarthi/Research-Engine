@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from .bandit import Bandit
 from .campaign import run_campaign
 from .discovery_roles import decide_arc
-from .generation import GENERATIVE_VEINS, VEINS, choose_mode
+from .generation import GENERATIVE_VEINS, VEINS, choose_mode, is_jepa_candidate
 from .steering import BREADTH, DEPTH, SteeringPolicy
 from .supervisor import SupervisorState, run_supervisor
 
@@ -77,6 +77,26 @@ class Campaign:
     arc: object = None                                # the frozen mid-campaign Synthesis (once)
     lead_arc_confirmed: bool = False                  # did the arc's joint-prediction box confirm
     pending_arc: list = field(default_factory=list)   # joint-prediction schemas awaiting a reserved box
+    jepa_matured: int = 0                             # running count of JEPA-tagged matured ideas (PLAN 78)
+
+
+def _schema_view(schema) -> dict:
+    """A dict view of a referee Schema for JEPA detection. The Schema drops `mechanism`, so this reads
+    the surviving text fields; the primary signal is the agent's SELECTED candidate (which keeps the
+    `jepa` stamp + mechanism), and this is the fallback for a pre-formed arc claim."""
+    if schema is None:
+        return {}
+    return {k: getattr(schema, k, "") for k in ("claim", "measure", "dataset", "backbone")}
+
+
+def _is_jepa_maturation(selected, result) -> bool:
+    """Did the just-scored maturation sit in the JEPA DAG? Prefer the agent's SELECTED candidate (it
+    carries the `jepa` stamp the wave computed, including the mechanism text the Schema loses); fall
+    back to the result schema for a pre-formed arc claim with no wave selection."""
+    if selected:
+        if selected.get("jepa") or is_jepa_candidate(selected):
+            return True
+    return is_jepa_candidate(_schema_view(result.schema))
 
 
 def _reward(verdict) -> float:
@@ -105,6 +125,8 @@ def build_step_fn(*, agent, backend, config, lease_store, box_factory, substrate
             if result.verdict is not None and result.verdict.status in _POSITIVE:
                 campaign.lead_arc_confirmed = True
             scored = result.verdict is not None and result.verdict.status in _SCORED
+            if scored and _is_jepa_maturation(None, result):
+                campaign.jepa_matured += 1  # the arc claim itself may sit in the JEPA DAG
         else:
             trial, arm = bandit.ask()
             vein = bandit.arm_label(arm)  # a NAMED vein, the bandit's arm space is the vein set now
@@ -112,7 +134,10 @@ def build_step_fn(*, agent, backend, config, lease_store, box_factory, substrate
             # depth-floor / breadth-cap on the margin.
             pick = BREADTH if vein in GENERATIVE_VEINS else DEPTH
             mode = choose_mode(pick, campaign.depth, campaign.breadth, policy)
-            context = {"vein": vein, "mode": mode, "negative_bank": sorted(campaign.negative_bank)}
+            # The running JEPA count is injected so a reserve-aware agent (the WaveAgent) can enforce
+            # the floor/cap on which candidate it surfaces first. A plain agent ignores it (harmless).
+            context = {"vein": vein, "mode": mode, "negative_bank": sorted(campaign.negative_bank),
+                       "jepa_matured": campaign.jepa_matured}
 
             result = run_campaign(agent, backend, config, lease_store, box_factory,
                                   substrate=substrate, triage=triage, context=context, reviewer=reviewer,
@@ -123,6 +148,8 @@ def build_step_fn(*, agent, backend, config, lease_store, box_factory, substrate
             scored = result.verdict is not None and result.verdict.status in _SCORED
             if scored and result.verdict.status in _NEGATIVE:
                 campaign.negative_bank.add(result.lineage)
+            if scored and _is_jepa_maturation(getattr(agent, "last_selected", None), result):
+                campaign.jepa_matured += 1  # PLAN 78: count every JEPA-tagged maturation for the reserve
             if mode == DEPTH:
                 campaign.depth += 1
             else:

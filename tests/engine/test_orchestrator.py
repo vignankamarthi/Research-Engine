@@ -92,6 +92,26 @@ def test_reviewer_rejection_blocks_maturation_and_spends_no_box(tmp_path):
     assert ls.box_status("b0") == "live"
 
 
+def test_failed_ideas_never_stop_the_loop_and_are_banked(tmp_path):
+    # Vignan's requirement, verified in code: a FAILED verdict is catalogued in the negative bank and the
+    # loop CONTINUES to the next idea. It halts only at the maturation budget, never on a failure.
+    # trained == untrained (0.25/0.25) makes the trained-minus-untrained FLOOR residual ~0, so the
+    # gauntlet returns a non-CONFIRMED (FAILED/INCONCLUSIVE) verdict every maturation.
+    ls = LeaseStore(str(tmp_path / "loop.db"))
+    ls.add_boxes([f"b{i}" for i in range(10)])
+    reason, report, campaign = run_loop(
+        agent=_VaryingAgent(), backend=MockBackend(0.25, 0.25, 0.1, seed=1), config=cfg(),
+        lease_store=ls, box_factory=_box_factory, substrate=MockSubstrate(),
+        triage=accept_as_proposed, reviewer=MockReviewerAdversary(),
+        budget=Budget.default(max_gpu_hours=100, max_boxes=8, max_maturations=3),
+        halt_flag=HaltFlag(str(tmp_path / "halt")), health_gate=HealthGate([]), seed=0)
+    assert reason == BASE_CASE                                    # ran to the budget, not an early stop
+    non_confirmed = [r for r in campaign.results if r.verdict is not None
+                     and r.verdict.status in ("FAILED", "INCONCLUSIVE", "CONFIRMED_NEGATIVE")]
+    assert len(non_confirmed) >= 3                                # multiple failures, loop kept going
+    assert all(r.lineage in campaign.negative_bank for r in non_confirmed)  # every dead end banked
+
+
 class _MockSynth:
     """A synthesizer that unifies any cluster under one thesis with a NON-entailed joint prediction, so
     `decide_arc` freezes an arc. The joint claim is a distinct string, so it hashes to a fresh lineage."""
