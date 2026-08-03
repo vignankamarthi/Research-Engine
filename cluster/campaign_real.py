@@ -300,10 +300,25 @@ def _novelty_of(q, titles):
     return bool(collision), titles, (bool(titles) and not collision)
 
 
+def _s2_key():
+    """The Semantic Scholar API key, from the S2_API_KEY env var or an off-repo key file
+    (~/.research-engine/s2_api_key, mode 600, never committed, alongside the signing key). Returns None
+    if neither is present, so tier 1 falls back to the shared unauthenticated pool."""
+    env = os.environ.get("S2_API_KEY")
+    if env and env.strip():
+        return env.strip()
+    keyfile = Path.home() / ".research-engine" / "s2_api_key"
+    if keyfile.exists():
+        k = keyfile.read_text().strip()
+        return k or None
+    return None
+
+
 def _s2_titles(q):
-    """Tier 1: Semantic Scholar. Uses S2_API_KEY when set (a far higher, dedicated rate limit than the
-    shared unauthenticated pool that 429s under load). Retries a 429 a few times, then raises to tier down."""
-    key = os.environ.get("S2_API_KEY")
+    """Tier 1: Semantic Scholar. Uses the API key (env or off-repo file) when present for a dedicated
+    1 req/s limit instead of the shared unauthenticated pool that 429s under load. Retries a 429 a few
+    times, then raises to tier down."""
+    key = _s2_key()
     headers = {"x-api-key": key} if key else {}
     url = ("https://api.semanticscholar.org/graph/v1/paper/search?limit=5&fields=title&query="
            + urllib.parse.quote(q))
