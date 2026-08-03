@@ -1,0 +1,68 @@
+Bootstrap: docker
+From: python:3.11-slim-bookworm
+
+# ---------------------------------------------------------------------------
+# blender_gpu.sif -- modern Blender (bpy 4.5 LTS) that ENUMERATES the Blackwell
+# RTX PRO 6000 (sm_120) and renders Cycles on GPU (OptiX / CUDA), replacing the
+# 2021 kubruntu (Blender 2.93) image that could only do CPU Cycles.
+#
+# Why this works where kubruntu did not: Cycles' GPU backend links the DRIVER
+# CUDA/OptiX API (libcuda.so.1, libnvoptix.so.1) and JIT-compiles its kernels
+# for the live GPU via the driver's ptxjitcompiler. It does NOT need a CUDA
+# TOOLKIT in the image. So a plain modern-glibc base (ubuntu 22.04, glibc 2.35)
+# plus the host driver libs bound at runtime is enough for Blackwell. Blender
+# 2.93 failed purely because its 2021 Cycles predates sm_120 / OptiX-on-Blackwell.
+#
+# The generator is one process: PyBullet physics + bpy Cycles render + imageio
+# mp4 encode, all in the SAME interpreter (matches the "one pair per process"
+# constraint). bpy is the pip module build of Blender, so `import bpy` gives the
+# full Cycles renderer inside ordinary CPython alongside pybullet/numpy/imageio.
+#
+# Build (login node, fakeroot works on AICR):
+#   export APPTAINER_CACHEDIR=/work/neu/p2026_0016_neu/kubric/.apptainer_cache
+#   export APPTAINER_TMPDIR=/work/neu/p2026_0016_neu/kubric/apptainer_tmp
+#   apptainer build --fakeroot blender_gpu.sif blender_gpu.def
+#
+# Run on a GPU node with --nv (CONFIRMED on AICR 2026-08-02): --nv enumerates the
+# Blackwell RTX PRO 6000 via OptiX. The old GLIBC break that forced the 2.93 image OFF
+# --nv is gone here (modern glibc 2.36 base). The explicit driver-lib bind path
+# (--bind nvdriver_bind + LD_LIBRARY_PATH) does NOT enumerate the GPU on this image;
+# use --nv.
+#   apptainer exec --nv \
+#     --bind /work/neu/p2026_0016_neu:/work/neu/p2026_0016_neu \
+#     blender_gpu.sif python3.11 physics_gen_bpy.py --device gpu ...
+# ---------------------------------------------------------------------------
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    # Base already ships Python 3.11 (bpy 4.5 LTS wheels are cp311); no deadsnakes/launchpad.
+    apt-get update
+    # runtime shared libs bpy/Cycles need even headless (no toolkit; GPU uses bound driver libs).
+    apt-get install -y --no-install-recommends \
+        libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 \
+        libsm6 libice6 libgl1 libglx-mesa0 libegl1 libgomp1 \
+        libxml2 libfreetype6 libxext6 xz-utils ca-certificates
+    # bpy 4.5 LTS = Blender 4.5 as a python module (bundles Cycles + GPU kernels).
+    # pybullet for physics, imageio+imageio-ffmpeg for mp4, numpy shared.
+    python3.11 -m pip install --no-cache-dir --timeout 180 --retries 6 \
+        "bpy==4.5.3" \
+        "numpy<2" \
+        pybullet \
+        imageio \
+        imageio-ffmpeg \
+        pillow
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONDONTWRITEBYTECODE=1
+
+%runscript
+    exec python3.11 "$@"
+
+%labels
+    Purpose Blender-4.5-GPU-Cycles-Blackwell
+    Blender 4.5.3-LTS-bpy-module
+    Base ubuntu-22.04-glibc2.35
