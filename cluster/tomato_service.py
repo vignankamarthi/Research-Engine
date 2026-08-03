@@ -66,8 +66,7 @@ def main():
                 seed = spec.get("untrained_seed")
                 m = model if seed is None else _untrained_model(seed, ssv2_qwen)
                 scores = tomato_qwen.score_items(
-                    spec["items"], m, processor, path_for, ablate_keep=spec.get("ablate_keep"),
-                    guess_on_fail=(seed is not None))
+                    spec["items"], m, processor, path_for, ablate_keep=spec.get("ablate_keep"))
                 out = RPC / req.name.replace("req_", "res_")
                 tmp = RPC / (".tmp_" + req.name.replace("req_", "res_"))
                 tmp.write_text(json.dumps({"scores": [float(s) for s in scores]}))

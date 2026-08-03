@@ -1,10 +1,15 @@
 """Shared test fixtures. The confirmatory tests all need the same building blocks (a valid
 signed-style config with the real control-catalog hash, an EFFECT schema, a post-cutoff box, a
 passing bundle). These live here so a test does not re-derive them and a change lands in one
-place."""
+place. This also puts the flat `cluster/` dir on sys.path so the pure cluster-scorer math
+(cluster/scoring_math.py) is importable in tests without torch."""
+import sys
 from datetime import date
+from pathlib import Path
 
 import pytest
+
+sys.path.append(str(Path(__file__).resolve().parent.parent / "cluster"))
 
 from backend import Box
 from engine.agents import Bundle

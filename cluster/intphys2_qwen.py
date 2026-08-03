@@ -1,9 +1,18 @@
-"""IntPhys 2 scorer on the cluster. IntPhys 2 is a BINARY intuitive-physics task (watch a synthetic
-Unreal clip, judge whether what happens is physically possible or impossible), so this is the binary
-variant of the TOMATO MCQ scorer: it prompts Qwen2.5-VL with the video, parses possible-vs-impossible,
-and returns per-item correctness. Reuses the frame decoding + model plumbing from ssv2_qwen, and the
-temporal-frequency (spectral-mask) ablation still applies to the decoded frames, so it serves the
-mechanism experiment too. Chance is 0.5 (the Main split is balanced 506 possible / 506 impossible).
+"""IntPhys 2 scorer on the cluster, ALSO the scorer for the generated paired physics clips (same
+binary possible/impossible question). IntPhys 2 is a BINARY intuitive-physics task (watch a clip,
+judge whether what happens is physically possible or impossible). It scores each item by CONTINUATION
+LEAN: the length-normalized log-likelihood of the whole word "Possible" vs the whole word
+"Impossible" as the assistant's answer, softmaxed to P(correct answer), a continuous [0,1] score for
+BOTH the trained and the untrained-init arm. Reuses the frame decoding + model plumbing from
+ssv2_qwen, and the temporal-frequency (spectral-mask) ablation still applies to the decoded frames, so
+it serves the mechanism experiment too. Chance is 0.5 (the Main split is balanced 506 possible / 506
+impossible), and the untrained model's near-uniform lean IS that 0.5 FLOOR, no coin flip.
+
+WHY CONTINUATION, NOT A SINGLE FIRST-TOKEN LOGIT (fixed 2026-08-02, on-cluster job 255434): the model
+emits "Possible" (capital) as its actual answer token, not the bare lowercase "possible", and
+"impossible" tokenizes to the generic prefix "im", so a first-token softmax read the wrong logits and
+produced plausible-but-meaningless scores. Scoring the whole option word (`continuation_logprobs`)
+matches the model's real surface form and is robust to capitalization + multi-token options.
 
 The video-key -> file-path mapping is injected (`path_for(item)`), resolved against the extracted
 Main/Videos layout. Ground truth comes from the `type` column of Main/metadata.csv (X_Possible /
@@ -12,43 +21,20 @@ import csv
 
 import numpy as np
 
-import ssv2_qwen  # decode_frames, spectral_mask_time, model classes, MODEL_ID
+import scoring_math
+import ssv2_qwen  # decode_frames, spectral_mask_time, answer_logits, first_token_ids, build_video_messages
+
+# The two answer options, in a fixed order. continuation_probs returns [P(possible), P(impossible)].
+# CAPITALIZED to match the model's actual emitted surface form (it answers "Possible", not "possible");
+# both options are scored the same way, so the shared surface-form cost cancels in the softmax.
+_OPTIONS = ("Possible", "Impossible")
 
 
 def _physics_prompt() -> str:
     return ("Watch this video of a physical scene. Decide whether what happens is physically POSSIBLE "
             "in the real world, or physically IMPOSSIBLE (it violates physics, for example an object "
             "vanishes, passes through a solid wall, or changes identity while hidden).\n\n"
-            "Answer with exactly one word: 'possible' or 'impossible'.")
-
-
-def _parse_possible(reply: str) -> int:
-    """1 = possible, 0 = impossible, -1 = unparseable. 'impossible' is checked FIRST because it
-    contains the substring 'possible', so a naive possible-first check would misread every impossible."""
-    r = reply.strip().lower()
-    if "impossible" in r:
-        return 0
-    if "possible" in r:
-        return 1
-    return -1
-
-
-def classify_physics(model, processor, frames):
-    from PIL import Image
-    images = [Image.fromarray(f) for f in frames]
-    messages = [{"role": "user", "content": [
-        {"type": "video", "video": images},
-        {"type": "text", "text": _physics_prompt()}]}]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    from qwen_vl_utils import process_vision_info
-    image_inputs, video_inputs = process_vision_info(messages)
-    import torch
-    inputs = processor(text=[text], images=image_inputs, videos=video_inputs,
-                       padding=True, return_tensors="pt").to(model.device)
-    with torch.no_grad():
-        out = model.generate(**inputs, max_new_tokens=16, do_sample=False)
-    gen = out[:, inputs.input_ids.shape[1]:]
-    return processor.batch_decode(gen, skip_special_tokens=True)[0].strip()
+            "Answer with exactly one word, either possible or impossible.")
 
 
 def load_items(metadata_csv: str, videos_dir: str = "Videos") -> list:
@@ -63,17 +49,17 @@ def load_items(metadata_csv: str, videos_dir: str = "Videos") -> list:
     return items
 
 
-def score_items(items, model, processor, path_for, ablate_keep=None, ablation_fn=None,
-                guess_on_fail=False):
-    """Per-item correctness over IntPhys 2 items. Each item: {key, answer (1 possible / 0 impossible)}.
-    `path_for(item) -> video file path`. Ablation applies to the decoded frames (mechanism pass).
+def score_items(items, model, processor, path_for, ablate_keep=None, ablation_fn=None):
+    """Per-item CONTINUATION-LEAN score over IntPhys 2 / generated physics items. Each item: {key,
+    answer (1 possible / 0 impossible)}. `path_for(item) -> video file path`. Ablation applies to the
+    decoded frames (mechanism pass). For each item: the length-normalized log-likelihood of "Possible"
+    vs "Impossible" as the answer (two forward passes), softmaxed to P, score = P(correct answer).
 
-    `guess_on_fail=True` is for the untrained FLOOR arm: a weights-randomized model that cannot produce
-    a valid possible/impossible word GUESSES at chance (a per-item deterministic coin flip) instead of
-    scoring a fail-closed wrong, giving a fair ~0.5 CHANCE baseline rather than an identically-zero
-    vector that both trivializes the FLOOR residual and trips the FLOOR's stub-rejection guard. The
-    trained arm keeps the fail-closed wrong (an unparseable answer is a real failure of the model)."""
-    import random
+    This is used for BOTH arms. The untrained-init (weights-randomized) FLOOR model is scored the
+    same way; its near-uniform option log-likelihoods give a real ~0.5 chance FLOOR, so there is no
+    `guess_on_fail` coin and no greedy-word yes-bias. The trained-minus-untrained residual the
+    SEPARATION gate reads is a graded lean on the [0,1] scale."""
+    prompt = _physics_prompt()
     scores = []
     for it in items:
         frames = ssv2_qwen.decode_frames(path_for(it))
@@ -81,11 +67,11 @@ def score_items(items, model, processor, path_for, ablate_keep=None, ablation_fn
             frames = np.clip(np.asarray(ablation_fn(frames)), 0, 255).astype(np.uint8)
         elif ablate_keep is not None:
             frames = ssv2_qwen.spectral_mask_time(frames, ablate_keep)
-        reply = classify_physics(model, processor, frames)
-        pred = _parse_possible(reply)
-        if pred == -1 and guess_on_fail:
-            pred = random.Random(str(it["key"])).randrange(2)
-        ok = 1.0 if pred == int(it["answer"]) else 0.0
-        scores.append(ok)
-        print(f"{it['key']}: pred={pred} true={it['answer']} {'OK' if ok else 'x'}", flush=True)
+        messages = ssv2_qwen.build_video_messages(frames, prompt)
+        logprobs = ssv2_qwen.continuation_logprobs(model, processor, messages, _OPTIONS)
+        probs = scoring_math.continuation_probs(logprobs)
+        # probs = [P(possible), P(impossible)]; answer 1 -> P(possible), answer 0 -> P(impossible)
+        p_correct = float(probs[0] if int(it["answer"]) == 1 else probs[1])
+        scores.append(p_correct)
+        print(f"{it['key']}: P(correct)={p_correct:.3f} true={it['answer']}", flush=True)
     return np.array(scores, dtype=float)
