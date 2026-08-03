@@ -92,4 +92,12 @@ def run_campaign(agent, backend, config, lease_store, box_factory, *,
     lease_store.stage(claim.box_id, claim.generation, verdict=verdict.status, score=b"")
     lease_store.commit(claim.box_id, claim.generation)
 
-    return CampaignResult(verdict, agent.frame(committed_raw, verdict), schema, lk)
+    # Framing is a cosmetic writeup drafted by the agent. A transient agent/CLI failure while drafting
+    # it must NEVER discard the verdict, which is already computed and box-committed above. Fail SOFT to
+    # a plain machine narrative so the science survives a narrator hiccup.
+    try:
+        narrative = agent.frame(committed_raw, verdict)
+    except Exception as e:
+        narrative = (f"[framing unavailable: {type(e).__name__}] "
+                     f"verdict {verdict.status} ({getattr(verdict, 'reason', '')})")
+    return CampaignResult(verdict, narrative, schema, lk)

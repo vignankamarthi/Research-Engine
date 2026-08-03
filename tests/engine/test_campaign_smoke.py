@@ -37,6 +37,22 @@ def test_end_to_end_campaign_confirms(tmp_path):
     assert ls.bank_verdict(res.lineage)[2] == "spent"  # one-grant record written
 
 
+def test_framing_crash_does_not_discard_the_verdict(tmp_path):
+    # a transient agent/CLI failure while drafting the cosmetic narrative must NOT lose a computed,
+    # box-committed verdict (the failure mode that crashed the first real IntPhys 2 run at the end).
+    class _FramingCrashes(MockAgent):
+        def frame(self, schema_raw, verdict):
+            raise RuntimeError("claude CLI failed (rc=1)")
+
+    ls = LeaseStore(str(tmp_path / "campaign.db"))
+    ls.add_boxes(["box0", "box1"])
+    res = run_campaign(_FramingCrashes(), MockBackend(0.25, 0.0, 0.1, seed=1), cfg(), ls, box_factory,
+                       substrate=MockSubstrate(), triage=accept_as_proposed)
+    assert res.verdict is not None and res.verdict.status == "CONFIRMED"   # the science survived
+    assert "framing unavailable" in res.narrative                          # fell back, did not crash
+    assert ls.box_status("box0") == "spent"                                # box still committed once
+
+
 def test_catalog_drift_does_not_burn_a_box(tmp_path):
     import pytest
 
