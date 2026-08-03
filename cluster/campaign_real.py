@@ -188,6 +188,20 @@ TASKS: dict[str, TaskConfig] = {
         svc_dir="/work/neu/p2026_0016_neu/intphys2",
         incumbent_tasks=(),                 # no signed incumbent -> EFFECT
     ),
+    # The engine's OWN generated paired possible/impossible physics clips (8 violation types). Rendered
+    # in 2026 (post Qwen cutoff -> backbone-clean by construction, and un-memorizable since procedural),
+    # scored by the SAME continuation-lean binary scorer as IntPhys 2. NO signed incumbent, so the
+    # classifier routes performance claims to EFFECT (a mechanism's trained-minus-untrained contrast on
+    # the pixel-identical pairs). MIE resolves on the signed `generated_physics_paired` catalog entry.
+    "generated_physics": TaskConfig(
+        task="generated_physics_paired",
+        claim_types=("effect",),
+        origin_date=date(2026, 8, 1),
+        rpc_dir="/work/neu/p2026_0016_neu/generated_physics/rpc",
+        svc_name="genphys-svc",
+        svc_dir="/work/neu/p2026_0016_neu/generated_physics",
+        incumbent_tasks=(),                 # no signed incumbent -> EFFECT
+    ),
 }
 
 
