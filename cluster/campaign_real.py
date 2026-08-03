@@ -25,6 +25,8 @@ Run on the Mac (dispatches scoring to the cluster service):
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -281,27 +283,91 @@ class _ServiceBackend:
         return self._rpc.score(self._manifest[box.id], untrained_seed=untrained_init)
 
 
-def _real_novelty_audit(schema):
-    q = str(schema.get("mechanism", "") or schema.get("claim", ""))[:120]
+class NoveltySourcesExhausted(RuntimeError):
+    """Every novelty-verification tier failed. This is a HARD STOP (red flag), NEVER a silent
+    fail-closed rejection: silently marking a real finding not-novel because the sources were down
+    would bury a genuine result, which the TOOL-LEDGER novelty contract forbids ("never
+    fail-closed-rejects a scored finding"). When all tiers are exhausted the campaign halts for human
+    intervention instead of quietly rejecting."""
+
+
+def _novelty_of(q, titles):
+    """The shared novelty verdict from a source's returned titles. `(collision, titles, novel)`:
+    NOVEL iff the source returned prior work AND none of it collides with the query text. Every tier
+    verifies the same way, so a fallback source is a like-for-like substitute, not a weaker check."""
+    titles = [t for t in (titles or []) if t]
+    collision = any(q.lower() in t.lower() or t.lower() in q.lower() for t in titles)
+    return bool(collision), titles, (bool(titles) and not collision)
+
+
+def _s2_titles(q):
+    """Tier 1: Semantic Scholar. Uses S2_API_KEY when set (a far higher, dedicated rate limit than the
+    shared unauthenticated pool that 429s under load). Retries a 429 a few times, then raises to tier down."""
+    key = os.environ.get("S2_API_KEY")
+    headers = {"x-api-key": key} if key else {}
     url = ("https://api.semanticscholar.org/graph/v1/paper/search?limit=5&fields=title&query="
            + urllib.parse.quote(q))
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(url, timeout=25) as r:
-                papers = json.load(r).get("data", []) or []
-            titles = [p.get("title", "") for p in papers]
-            collision = any(q.lower() in t.lower() or t.lower() in q.lower() for t in titles if t)
-            return bool(collision), titles, (bool(titles) and not collision)
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=25) as r:
+                return [p.get("title", "") for p in (json.load(r).get("data") or [])]
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < 3:
                 time.sleep(5 * (attempt + 1))
                 continue
-            log(f"    novelty audit HTTP {e.code}; fail-closed")
-            return False, [], False
-        except Exception as e:
-            log(f"    novelty audit unreachable ({e}); fail-closed")
-            return False, [], False
-    return False, [], False
+            raise
+    raise RuntimeError("semantic_scholar retries exhausted")
+
+
+def _arxiv_titles(q):
+    """Tier 2: the arXiv API (keyless). Returns Atom XML; pull each entry's title."""
+    url = "http://export.arxiv.org/api/query?max_results=5&search_query=all:" + urllib.parse.quote(q)
+    with urllib.request.urlopen(url, timeout=25) as r:
+        xml = r.read().decode("utf-8", "replace")
+    out = []
+    for entry in re.findall(r"<entry>(.*?)</entry>", xml, re.S):
+        m = re.search(r"<title>(.*?)</title>", entry, re.S)
+        if m:
+            out.append(re.sub(r"\s+", " ", m.group(1)).strip())
+    return out
+
+
+def _openalex_titles(q):
+    """Tier 3: OpenAlex (keyless, polite pool via mailto). Returns JSON works with titles."""
+    url = ("https://api.openalex.org/works?per-page=5&mailto=vignankamarthi@gmail.com&search="
+           + urllib.parse.quote(q))
+    with urllib.request.urlopen(url, timeout=25) as r:
+        return [w.get("title") or "" for w in (json.load(r).get("results") or [])]
+
+
+# The novelty verification CASCADE (Vignan, 2026-08-03). Try each source in order; the first that
+# ANSWERS wins; every tier-down is LOGGED (an explicit, deterministic escalation, not the forbidden
+# SILENT fallback). All sources verify novelty the same way (query prior work, check title collision),
+# so a fallback is a like-for-like substitute. When ALL are exhausted the audit HARD-STOPS (red flag)
+# rather than fail-closed-rejecting, per the TOOL-LEDGER novelty contract. S2 is tier 1 (uses
+# S2_API_KEY when set); arxiv + openalex are the keyless fallbacks that keep novelty verifiable when S2
+# rate-limits. Overridable as a module attribute for tests.
+_NOVELTY_TIERS = (
+    ("semantic_scholar", _s2_titles),
+    ("arxiv", _arxiv_titles),
+    ("openalex", _openalex_titles),
+)
+
+
+def _real_novelty_audit(schema):
+    q = str(schema.get("mechanism", "") or schema.get("claim", ""))[:120]
+    for name, fetch in _NOVELTY_TIERS:
+        try:
+            titles = fetch(q)
+        except Exception as e:  # this source is down -> tier down (logged, deterministic, not silent)
+            log(f"    novelty tier {name} down ({type(e).__name__}: {str(e)[:70]}); tiering down")
+            continue
+        collision, titles, novel = _novelty_of(q, titles)
+        log(f"    novelty via {name}: {len(titles)} hits, collision={collision}, novel={novel}")
+        return collision, titles, novel
+    raise NoveltySourcesExhausted(
+        "ALL novelty sources exhausted (" + ", ".join(n for n, _ in _NOVELTY_TIERS)
+        + ") -- HARD STOP (red flag), never a silent not-novel reject")
 
 
 def main():

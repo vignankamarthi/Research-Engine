@@ -143,3 +143,36 @@ def test_significance_penalty_reads_the_adversary_and_fails_soft():
             raise RuntimeError("adversary offline")
 
     assert cr.significance_penalty(_Boom())({"claim": "x"}) == 0.0   # advisory -> 0.0, never a kill
+
+
+def test_novelty_cascade_tiers_down_then_uses_a_live_source(monkeypatch):
+    # tier 1 down (S2 429) must not fail-close: it tiers down to the next source and uses its answer.
+    calls = []
+    monkeypatch.setattr(cr, "_NOVELTY_TIERS", (
+        ("s2", lambda q: (_ for _ in ()).throw(RuntimeError("429"))),
+        ("arxiv", lambda q: calls.append("arxiv") or ["some unrelated title"]),
+    ))
+    collision, titles, novel = cr._real_novelty_audit({"mechanism": "a brand new mechanism"})
+    assert calls == ["arxiv"]          # the fallback tier actually ran
+    assert titles == ["some unrelated title"]
+    assert novel is True               # prior work returned, no collision -> novel
+
+
+def test_novelty_cascade_hard_stops_when_all_sources_down(monkeypatch):
+    # every tier down -> HARD STOP (red flag), never a silent not-novel reject.
+    monkeypatch.setattr(cr, "_NOVELTY_TIERS", (
+        ("s2", lambda q: (_ for _ in ()).throw(RuntimeError("down"))),
+        ("arxiv", lambda q: (_ for _ in ()).throw(RuntimeError("down"))),
+    ))
+    import pytest
+    with pytest.raises(cr.NoveltySourcesExhausted):
+        cr._real_novelty_audit({"mechanism": "x"})
+
+
+def test_novelty_collision_marks_not_novel(monkeypatch):
+    # a returned title that contains the query text is a collision -> not novel.
+    monkeypatch.setattr(cr, "_NOVELTY_TIERS", (
+        ("s2", lambda q: ["A study of my exact mechanism and more"]),
+    ))
+    collision, _, novel = cr._real_novelty_audit({"mechanism": "my exact mechanism"})
+    assert collision is True and novel is False
